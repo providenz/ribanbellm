@@ -206,12 +206,33 @@ def test_both_agents_get_the_same_topic(pair):
     assert topics[0] == topics[1] == TOPICS[0]
 
 
-def test_prompts_steer_away_from_repeating_quirks_and_self_talk(pair):
-    model = Scripted([turn(leave=True)] * MIN_LINES)
+def test_quirk_is_only_offered_on_the_greeting_unless_the_dice_say_so(pair):
+    a, b = pair  # Gérard's quirk is "Bof."
+    model = Scripted([turn()] * 20)
+
+    list(run(a, b, model=model, rng=First(a, roll=0.9)))
+
+    assert 'Bof.' in model.calls[0]  # Gérard greets
+    assert all('Bof.' not in call for call in model.calls[2:MAX_LINES:2])  # Gérard's later turns
+    assert 'sans ton tic de langage' in model.calls[2]
+
+
+def test_quirk_comes_back_now_and_then(pair):
+    a, b = pair
+    model = Scripted([turn()] * 20)
+
+    list(run(a, b, model=model, rng=First(a, roll=0.1)))
+
+    assert 'Bof.' in model.calls[2]
+
+
+def test_each_turn_keeps_the_topic_in_view(pair):
+    model = Scripted([turn()] * 20)
 
     list(run(*pair, model=model, rng=First(pair[0])))
 
-    assert 'pas à chaque réplique' in model.calls[0]
+    talk_turns = model.calls[2:MAX_LINES - 2]
+    assert talk_turns and all(TOPICS[0] in call.split('\n')[-1] for call in talk_turns)
     assert 'ne parles pas de toi' in model.calls[0]
 
 

@@ -25,7 +25,9 @@ class CharacterIdea(BaseModel):
     personality: Annotated[str, AfterValidator(lambda s: s[:300])] = Field(
         description='Une ou deux phrases: qui ou quoi il est, son obsession.'
     )
-    speech_quirk: Annotated[str, AfterValidator(lambda s: s[:200])] = Field(description='Son tic de langage.')
+    speech_quirk: Annotated[str, AfterValidator(lambda s: s[:200])] = Field(
+        description='Son tic de langage, utilisé de temps en temps (pas à chaque phrase).'
+    )
     color: Annotated[str, BeforeValidator(_color)] = Field(
         default_factory=lambda: random.choice(PALETTE), description='Couleur hexadécimale, ex. #7ab04a.'
     )

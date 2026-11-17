@@ -20,6 +20,8 @@ from .models import Character, Feeling, Memory
 MIN_LINES = 4  # greetings and goodbyes included
 MAX_LINES = 8
 GOSSIP_PROBABILITY = 0.35
+# Models copy a quirk into every line if they always see it: show it on the first turn, then now and then
+QUIRK_PROBABILITY = 0.25
 
 VILLAGE = (
     'Vous vivez dans un petit village: quelques maisons, un puits sur la place, des bancs, des lampadaires, '
@@ -51,7 +53,10 @@ def pick_topic(rng, others: list[str]) -> str:
 
 class Turn(BaseModel):
     text: ShortText = Field(description='Ta réplique: courte (moins de 120 caractères), drôle, en français.')
-    emotion: LenientEmotion
+    emotion: LenientEmotion = Field(
+        description='L\'émotion de CETTE réplique, selon ce que tu dis: agacé, surpris, triste, fier de toi, inquiet... '
+        'happy seulement si tu es vraiment content.'
+    )
     leave: bool = Field(default=False, description='true si tu t\'en vas après cette réplique.')
 
 
@@ -69,6 +74,7 @@ class CharacterContext:
     feeling: int
     memories: list[Memory]
     topic: str
+    quirk_now: bool | None = None  # this turn: use the quirk (True), avoid it (False); None outside turns
 
 
 def _who_i_am(ctx: CharacterContext) -> str:
@@ -78,7 +84,11 @@ def _who_i_am(ctx: CharacterContext) -> str:
     return '\n'.join(
         [
             f'Tu es {ctx.me.name}. Personnalité: {ctx.me.personality}',
-            f'Ton tic de langage (une ou deux fois dans la conversation, pas à chaque réplique): {ctx.me.speech_quirk}',
+            *{
+                True: [f'Ton tic de langage, à glisser dans cette réplique: {ctx.me.speech_quirk}'],
+                False: ['Cette réplique, sans ton tic de langage ni tes gestes habituels: juste ce que tu as à dire.'],
+                None: [],
+            }[ctx.quirk_now],
             f'Tu croises {ctx.partner.name}. Ce que tout le monde voit de lui: {ctx.partner.personality}',
             f'Ce que tu ressens pour {ctx.partner.name}: {feeling_label(ctx.feeling)}.',
             'Tes souvenirs (toi seul les connais):',
@@ -128,9 +138,10 @@ def _turn_prompt(ctx: CharacterContext, lines: list[dict], phase: str) -> str:
     """What this turn is for: greeting, greeting back, talking (may leave), last line, or goodbye back."""
     other = ctx.partner.name
     instruction = {
-        'greet': f'Tu croises {other}: tu parles en premier. Salue {other}.',
-        'greet_back': f'Salue {other} en retour, à ta façon.',
-        'free': 'Tu peux partir si tu veux: dans ce cas ta réplique est un au revoir et leave vaut true.',
+        'greet': f'Tu croises {other}: tu parles en premier. Salue {other}, puis lance le sujet du jour: {ctx.topic}.',
+        'greet_back': f'Salue {other} en retour, à ta façon, et réagis à ce qu\'il vient de dire.',
+        'free': f'Réponds à ce que {other} vient de dire, en restant sur le sujet du jour ({ctx.topic}). '
+        'Tu peux partir si tu veux: dans ce cas ta réplique est un au revoir et leave vaut true.',
         'last': f'C\'est ta dernière réplique: tu t\'en vas, dis au revoir à {other}.',
         'goodbye_back': f'{other} s\'en va. Dis-lui au revoir.',
     }[phase]
@@ -167,6 +178,7 @@ def run(a: Character, b: Character, *, model: Model, rng: random.Random | None =
         while True:
             ctx = contexts[current.pk]
             phase = _phase(lines, partner_left)
+            ctx.quirk_now = len(lines) < 2 or rng.random() < QUIRK_PROBABILITY
             yield thinking_event(current)
             result = speaker.run_sync(_turn_prompt(ctx, lines, phase), deps=ctx, model=model)
             usage.add(result)
@@ -180,6 +192,7 @@ def run(a: Character, b: Character, *, model: Model, rng: random.Random | None =
 
         reflections = {}
         for me in (a, b):
+            contexts[me.pk].quirk_now = None
             result = reflector.run_sync(
                 f'La conversation:\n{_transcript(lines)}', deps=contexts[me.pk], model=model
             )

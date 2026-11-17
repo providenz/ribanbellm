@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { BLOCK_H, MAP, TILE_H, gridToScreen, screenToGrid } from './map.js';
 import {
-  candidatePairs, chooseStep, findPath, lineDuration, pairKey, pickMeetingSpot, pickSpawnTiles, pickSplitTargets, tileKey,
+  blockedFor, candidatePairs, chooseStep, findPath, lineDuration, pairKey, pickMeetingSpot, pickSpawnTiles, pickSplitTargets, tileKey,
 } from './sim.js';
 import { CHAR_H, makeCharacterTexture, makeTileTextures } from './sprites.js';
 import { readEvents } from './stream.js';
@@ -11,7 +11,7 @@ const STEP_DURATION_MS = 600;
 const FOOT_OFFSET = TILE_H / 2 + 4; // from a tile's top point to where a character stands
 const MEETING = { maxConcurrent: 1, globalGapMs: 20000, pairCooldownMs: 60000 };
 const MEETING_CHECK_MS = 250;
-const PATH_RETRIES = 3; // a walker whose way is blocked waits and retries this many times
+const PATH_RETRIES = 8; // a walker whose way is blocked waits and retries this many times in a row
 const PATH_RETRY_MS = 500;
 const EMOJI = { neutral: '', happy: '😄', annoyed: '😤', sad: '😢', surprised: '😮', smug: '😏', scared: '😱' };
 
@@ -34,6 +34,7 @@ class IsoScene extends Phaser.Scene {
     this.cast = []; // all active characters from the API, in stable order
     this.walkers = new Map(); // character id -> walker on screen
     this.occupied = new Set(); // tileKey of tiles held by a walker
+    this.reserved = new Set(); // tileKey of meeting tiles, kept free of wanderers
     this.inFlight = 0; // conversations in progress
     this.lastEndedAt = -Infinity;
     this.pairCooldownUntil = new Map(); // pairKey -> scene time
@@ -150,7 +151,7 @@ class IsoScene extends Phaser.Scene {
   }
 
   async wander(walker) {
-    const next = chooseStep(MAP, this.occupied, walker.col, walker.row, Math.random);
+    const next = chooseStep(MAP, blockedFor(this.occupied, this.reserved), walker.col, walker.row, Math.random);
     if (!next) return this.scheduleStep(walker);
     walker.state = 'moving';
     await this.moveStep(walker, next);
@@ -201,14 +202,13 @@ class IsoScene extends Phaser.Scene {
     let failures = 0;
     while (this.isPresent(walker) && !shouldStop()) {
       if (walker.col === dest.col && walker.row === dest.row) return true;
-      const blocked = new Set(this.occupied);
-      blocked.delete(tileKey(walker.col, walker.row));
-      const path = findPath(MAP, blocked, walker, dest);
+      const path = findPath(MAP, blockedFor(this.occupied, this.reserved, walker, dest), walker, dest);
       if (!path) {
         if (++failures > PATH_RETRIES) return false;
         await this.wait(PATH_RETRY_MS);
         continue;
       }
+      failures = 0;
       await this.moveStep(walker, path[0]);
     }
     return false;
@@ -244,6 +244,8 @@ class IsoScene extends Phaser.Scene {
       w.state = 'approaching';
       w.conversation = convo;
     }
+    const spotKeys = [spot.a, spot.b].map((tile) => tileKey(tile.col, tile.row));
+    spotKeys.forEach((key) => this.reserved.add(key));
     this.inFlight++;
     this.listen(a, b, convo); // the first line is written while they walk
     try {
@@ -262,6 +264,7 @@ class IsoScene extends Phaser.Scene {
     } finally {
       this.clearBubbles(convo);
       convo.abort.abort();
+      spotKeys.forEach((key) => this.reserved.delete(key));
       this.inFlight--;
       this.lastEndedAt = this.time.now;
       this.pairCooldownUntil.set(pairKey(a.id, b.id), this.time.now + MEETING.pairCooldownMs);
@@ -321,6 +324,7 @@ class IsoScene extends Phaser.Scene {
         return;
       } else {
         // error, or the stream closed without an end
+        if (event.type === 'error') console.warn('Conversation error:', event.message);
         await this.shrug(convo, a, b);
         return;
       }

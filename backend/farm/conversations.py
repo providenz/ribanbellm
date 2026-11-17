@@ -4,6 +4,7 @@ An engine is a generator of event dicts (see `thinking_event`, `line_event`, `en
 `error_event`); it records the conversation itself before yielding `end` or `error`.
 """
 
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -16,6 +17,8 @@ from .common import MemoryNote, Usage, resolve_about
 from .llm import build_model  # re-exported: tests patch farm.conversations.build_model
 from .models import Character, Conversation, Feeling, Memory
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Outcome:
@@ -26,7 +29,14 @@ class Outcome:
 
 
 def record(
-    a: Character, b: Character, *, lines: list[dict], usage: Usage, engine: str, outcome: Outcome | None
+    a: Character,
+    b: Character,
+    *,
+    lines: list[dict],
+    usage: Usage,
+    engine: str,
+    outcome: Outcome | None,
+    error: str = '',
 ) -> Conversation:
     """Save the conversation. Without an outcome it was interrupted: no memories, no feeling change."""
     with transaction.atomic():
@@ -47,11 +57,19 @@ def record(
             feeling_b_after=b_to_a.score,
             interrupted=outcome is None,
             engine=engine,
+            error=error,
             model_name=usage.model_name,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             cost_usd=usage.cost_usd,
         )
+
+
+def interrupted(a: Character, b: Character, *, lines: list[dict], usage: Usage, engine: str, exc: Exception) -> dict:
+    """Log the failure, save what was said with no consequences, and return the error event."""
+    logger.exception('%s conversation between %s and %s failed', engine, a.name, b.name)
+    record(a, b, lines=lines, usage=usage, engine=engine, outcome=None, error=str(exc))
+    return error_event(str(exc))
 
 
 def thinking_event(speaker: Character) -> dict:

@@ -38,7 +38,7 @@ class ConversationAdmin(admin.ModelAdmin):
     ]
     list_filter = ['engine', 'model_name', 'interrupted']
     readonly_fields = [
-        'a', 'b', 'lines', 'engine', 'interrupted',
+        'a', 'b', 'lines', 'engine', 'interrupted', 'error',
         'feeling_a_before', 'feeling_a_after', 'feeling_b_before', 'feeling_b_after',
         'model_name', 'input_tokens', 'output_tokens', 'cost_usd', 'created_at',
     ]

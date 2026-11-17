@@ -138,3 +138,12 @@ export function pickSplitTargets(map, blocked, a, b, rng) {
   const targetB = pick(b, a, targetA ? [tileKey(targetA.col, targetA.row)] : []);
   return { a: targetA, b: targetB };
 }
+
+// Tiles a walker must avoid: everyone's tiles plus reserved meeting tiles, except its own tile and
+// its own destination.
+export function blockedFor(occupied, reserved, own = null, dest = null) {
+  const blocked = new Set([...occupied, ...reserved]);
+  if (own) blocked.delete(tileKey(own.col, own.row));
+  if (dest) blocked.delete(tileKey(dest.col, dest.row));
+  return blocked;
+}

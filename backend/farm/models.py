@@ -95,6 +95,7 @@ class Conversation(models.Model):
     feeling_b_after = models.SmallIntegerField(default=0)
     interrupted = models.BooleanField(default=False, help_text='Stopped by an LLM error: no memories or feelings applied.')
     engine = models.CharField(max_length=10, default='director')
+    error = models.TextField(blank=True, help_text='Why the conversation was interrupted.')
     model_name = models.CharField(max_length=100, blank=True)
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)

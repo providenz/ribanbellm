@@ -129,6 +129,7 @@ def test_failure_mid_conversation_keeps_lines_without_consequences(pair):
     assert events[-1] == {'type': 'error', 'message': 'LLM down'}
     conversation = Conversation.objects.get()
     assert conversation.interrupted
+    assert conversation.error == 'LLM down'
     assert len(conversation.lines) == 2
     assert Memory.objects.count() == 0
     assert not Feeling.objects.exclude(score=0).exists()

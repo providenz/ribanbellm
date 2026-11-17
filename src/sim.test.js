@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  candidatePairs, chooseStep, findPath, freeNeighbors, isWalkable, lineDuration, pairKey,
+  blockedFor, candidatePairs, chooseStep, findPath, freeNeighbors, isWalkable, lineDuration, pairKey,
   pickMeetingSpot, pickSpawnTiles, pickSplitTargets, tileKey,
 } from './sim.js';
 
@@ -181,5 +181,17 @@ describe('pickSplitTargets', () => {
   it('gives null when there is no room', () => {
     const targets = pickSplitTargets([[0, 0]], new Set(), t(0, 0), t(1, 0), seq(0.5));
     expect(targets).toEqual({ a: null, b: null });
+  });
+});
+
+describe('blockedFor', () => {
+  it('adds reserved tiles but frees my own tile and my destination', () => {
+    const blocked = blockedFor(new Set([tileKey(0, 0), tileKey(5, 5)]), new Set([tileKey(2, 2), tileKey(3, 3)]), t(0, 0), t(3, 3));
+    expect([...blocked].sort()).toEqual([tileKey(2, 2), tileKey(5, 5)].sort());
+  });
+
+  it('keeps wanderers off reserved meeting tiles', () => {
+    const blocked = blockedFor(new Set(), new Set([tileKey(1, 0)]));
+    expect(chooseStep([[0, 0]], blocked, 0, 0, () => 0)).toBeNull();
   });
 });

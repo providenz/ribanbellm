@@ -68,6 +68,16 @@ def test_unexpected_model_exception_ends_with_error_event(pair):
     assert Conversation.objects.get().interrupted
 
 
+def test_failure_is_stored_and_logged(pair, caplog):
+    def broken(messages, info):
+        raise RuntimeError('LLM down')
+
+    list(stream(*pair, model=FunctionModel(broken)))
+
+    assert Conversation.objects.get().error == 'LLM down'
+    assert 'LLM down' in caplog.text
+
+
 def test_abandoned_stream_saves_nothing(pair):
     events = stream(*pair, model=answering(VALID))
     next(events)

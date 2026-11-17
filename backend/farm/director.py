@@ -8,7 +8,7 @@ from pydantic_ai import Agent
 from pydantic_ai.models import Model
 
 from .common import TONE_RULES, LenientEmotion, MemoryNote, ShortText, Usage, feeling_label
-from .conversations import Outcome, end_event, error_event, line_event, record, thinking_event
+from .conversations import Outcome, end_event, interrupted, line_event, record, thinking_event
 from .models import Character, Feeling, Memory
 
 
@@ -85,8 +85,7 @@ def run(a: Character, b: Character, *, model: Model) -> Iterator[dict]:
     try:
         run = director.run_sync(build_prompt(a, b), model=model)
     except Exception as exc:  # any model failure ends the stream cleanly
-        record(a, b, lines=[], usage=usage, engine='director', outcome=None)
-        yield error_event(str(exc))
+        yield interrupted(a, b, lines=[], usage=usage, engine='director', exc=exc)
         return
     usage.add(run)
     result = run.output

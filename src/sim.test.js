@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseStep, freeNeighbors, isWalkable, pickSpawnTiles, tileKey } from './sim.js';
+import { chooseStep, findMeeting, freeNeighbors, isWalkable, lineDuration, pairKey, pickSpawnTiles, tileKey } from './sim.js';
 
 // 0 = floor, 1 = block
 const MAP = [
@@ -63,5 +63,45 @@ describe('pickSpawnTiles', () => {
 
   it('returns fewer tiles when the map is full', () => {
     expect(pickSpawnTiles(MAP, new Set(), 20, Math.random)).toHaveLength(8);
+  });
+});
+
+describe('findMeeting', () => {
+  const rules = { maxConcurrent: 1, globalGapMs: 20000 };
+  const state = (over = {}) => ({ now: 100000, inFlight: 0, lastEndedAt: -Infinity, pairCooldownUntil: new Map(), ...over });
+  const w = (id, col, row, s = 'idle') => ({ id, col, row, state: s });
+
+  it('pairs two idle neighbours', () => {
+    const [a, b] = findMeeting([w(1, 0, 0), w(2, 5, 5), w(3, 0, 1)], state(), rules);
+    expect([a.id, b.id]).toEqual([1, 3]);
+  });
+
+  it('ignores diagonal or distant characters', () => {
+    expect(findMeeting([w(1, 0, 0), w(2, 1, 1), w(3, 4, 4)], state(), rules)).toBeNull();
+  });
+
+  it('ignores characters that are moving or talking', () => {
+    expect(findMeeting([w(1, 0, 0, 'moving'), w(2, 0, 1)], state(), rules)).toBeNull();
+    expect(findMeeting([w(1, 0, 0), w(2, 0, 1, 'talking')], state(), rules)).toBeNull();
+  });
+
+  it('respects the concurrency limit and the global gap', () => {
+    const pair = [w(1, 0, 0), w(2, 0, 1)];
+    expect(findMeeting(pair, state({ inFlight: 1 }), rules)).toBeNull();
+    expect(findMeeting(pair, state({ lastEndedAt: 90000 }), rules)).toBeNull();
+    expect(findMeeting(pair, state({ lastEndedAt: 80000 }), rules)).not.toBeNull();
+  });
+
+  it('respects the pair cooldown in both orders', () => {
+    const cooldown = new Map([[pairKey(2, 1), 150000]]);
+    expect(findMeeting([w(1, 0, 0), w(2, 0, 1)], state({ pairCooldownUntil: cooldown }), rules)).toBeNull();
+    expect(findMeeting([w(1, 0, 0), w(2, 0, 1)], state({ now: 150000, pairCooldownUntil: cooldown }), rules)).not.toBeNull();
+  });
+});
+
+describe('lineDuration', () => {
+  it('grows with the text length', () => {
+    expect(lineDuration('')).toBe(1500);
+    expect(lineDuration('abcd')).toBe(1700);
   });
 });

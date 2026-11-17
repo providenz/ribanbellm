@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { BLOCK_H, MAP, TILE_H, gridToScreen, screenToGrid } from './map.js';
-import { chooseStep, pickSpawnTiles, tileKey } from './sim.js';
-import { makeCharacterTexture, makeTileTextures } from './sprites.js';
+import { chooseStep, findMeeting, lineDuration, pairKey, pickSpawnTiles, tileKey } from './sim.js';
+import { CHAR_H, makeCharacterTexture, makeTileTextures } from './sprites.js';
 
 const STEP_DELAY_MS = [1000, 3000]; // idle time between two steps
 const STEP_DURATION_MS = 600;
 const FOOT_OFFSET = TILE_H / 2 + 4; // from a tile's top point to where a character stands
+const MEETING = { maxConcurrent: 1, globalGapMs: 20000, pairCooldownMs: 60000 };
+const MEETING_CHECK_MS = 250;
+const EMOJI = { neutral: '', happy: '😄', angry: '😠', sad: '😢', surprised: '😮', smug: '😏', scared: '😱' };
 
 class IsoScene extends Phaser.Scene {
   constructor() {
@@ -23,6 +26,11 @@ class IsoScene extends Phaser.Scene {
     this.cast = []; // all active characters from the API, in stable order
     this.walkers = new Map(); // character id -> walker on screen
     this.occupied = new Set(); // tileKey of tiles held by a walker
+    this.inFlight = 0; // conversations in progress
+    this.lastEndedAt = -Infinity;
+    this.pairCooldownUntil = new Map(); // pairKey -> scene time
+    // Phaser freezes timers and tweens while the tab is hidden, so the world pauses with it
+    this.time.addEvent({ delay: MEETING_CHECK_MS, loop: true, callback: () => this.checkMeetings() });
 
     this.status = this.add.text(12, 12, 'Chargement...', {
       fontFamily: 'monospace', fontSize: '14px', color: '#c8ccd8',
@@ -97,7 +105,7 @@ class IsoScene extends Phaser.Scene {
     this.world.add(sprite);
     this.overlay.add(label);
 
-    const walker = { character, col, row, pos: { col, row }, sprite, label, timer: null };
+    const walker = { id: character.id, character, col, row, pos: { col, row }, sprite, label, timer: null, state: 'idle' };
     this.walkers.set(character.id, walker);
     this.occupied.add(tileKey(col, row));
     this.place(walker, col + row);
@@ -105,6 +113,10 @@ class IsoScene extends Phaser.Scene {
   }
 
   removeWalker(walker) {
+    if (walker.conversation) {
+      walker.conversation.cancelled = true;
+      this.clearBubbles(walker.conversation);
+    }
     walker.timer?.remove();
     this.tweens.killTweensOf(walker.pos);
     this.occupied.delete(tileKey(walker.col, walker.row));
@@ -123,6 +135,7 @@ class IsoScene extends Phaser.Scene {
     if (!next) return this.scheduleStep(walker);
 
     // Hold both tiles during the move so nobody walks into us
+    walker.state = 'moving';
     walker.target = next;
     this.occupied.add(tileKey(next.col, next.row));
     const goingRight = gridToScreen(next.col, next.row).x > gridToScreen(walker.col, walker.row).x;
@@ -142,10 +155,139 @@ class IsoScene extends Phaser.Scene {
         walker.col = next.col;
         walker.row = next.row;
         walker.target = null;
+        walker.state = 'idle';
         this.place(walker, next.col + next.row);
         this.scheduleStep(walker);
       },
     });
+  }
+
+  checkMeetings() {
+    const pair = findMeeting(
+      [...this.walkers.values()],
+      { now: this.time.now, inFlight: this.inFlight, lastEndedAt: this.lastEndedAt, pairCooldownUntil: this.pairCooldownUntil },
+      MEETING,
+    );
+    if (pair) this.converse(...pair);
+  }
+
+  async converse(a, b) {
+    const convo = { cancelled: false, bubbles: new Set() };
+    for (const w of [a, b]) {
+      w.timer?.remove();
+      w.state = 'talking';
+      w.conversation = convo;
+    }
+    this.face(a, b);
+    this.face(b, a);
+    this.inFlight++;
+    try {
+      this.showBubble(convo, a, '...');
+      this.showBubble(convo, b, '...');
+      let result = null;
+      try {
+        result = await this.requestConversation(a, b);
+      } catch (error) {
+        console.warn('Conversation failed:', error.message);
+      }
+      this.clearBubbles(convo);
+      if (convo.cancelled) return;
+
+      if (!result) {
+        this.showBubble(convo, a, '🤷 bof...');
+        this.showBubble(convo, b, '🤷 bof...');
+        await this.wait(2000);
+        return;
+      }
+      for (const line of result.lines) {
+        if (convo.cancelled) return;
+        const speaker = line.speaker === a.character.name ? a : b;
+        this.react(speaker, line.emotion);
+        this.showBubble(convo, speaker, `${EMOJI[line.emotion] ?? ''} ${line.text}`.trim());
+        await this.wait(lineDuration(line.text));
+        this.clearBubbles(convo);
+      }
+      const delta = result.score_after - result.score_before;
+      if (delta !== 0 && !convo.cancelled) {
+        this.floatIcon(a, delta > 0 ? '❤️' : '⚡');
+        this.floatIcon(b, delta > 0 ? '❤️' : '⚡');
+        await this.wait(1200);
+      }
+    } finally {
+      this.clearBubbles(convo);
+      this.inFlight--;
+      this.lastEndedAt = this.time.now;
+      this.pairCooldownUntil.set(pairKey(a.id, b.id), this.time.now + MEETING.pairCooldownMs);
+      for (const w of [a, b]) {
+        if (this.walkers.get(w.id) !== w) continue; // removed by the slider meanwhile
+        w.conversation = null;
+        w.state = 'idle';
+        this.scheduleStep(w);
+      }
+    }
+  }
+
+  async requestConversation(a, b) {
+    const response = await fetch('/api/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ a_id: a.id, b_id: b.id }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  wait(ms) {
+    return new Promise((resolve) => this.time.delayedCall(ms, resolve));
+  }
+
+  face(walker, other) {
+    walker.sprite.setFlipX(gridToScreen(other.col, other.row).x < gridToScreen(walker.col, walker.row).x);
+  }
+
+  // Point just above a standing walker's head
+  headPoint(walker) {
+    const { x, y } = gridToScreen(walker.col, walker.row);
+    return { x, y: y + FOOT_OFFSET - CHAR_H - 2 };
+  }
+
+  showBubble(convo, walker, text) {
+    const pad = 6;
+    const tail = 6;
+    const label = this.add
+      .text(0, 0, text, { fontFamily: 'sans-serif', fontSize: '12px', color: '#1b1d26', wordWrap: { width: 170 } })
+      .setOrigin(0.5, 1);
+    const w = label.width + pad * 2;
+    const h = label.height + pad * 2;
+    const bg = this.add.graphics();
+    bg.fillStyle(0xffffff, 0.95).fillRoundedRect(-w / 2, -h - tail, w, h, 8).fillTriangle(-5, -tail - 1, 5, -tail - 1, 0, 0);
+    label.setPosition(0, -tail - pad);
+    const { x, y } = this.headPoint(walker);
+    const bubble = this.add.container(x, y, [bg, label]);
+    this.overlay.add(bubble);
+    convo.bubbles.add(bubble);
+  }
+
+  clearBubbles(convo) {
+    convo.bubbles.forEach((bubble) => bubble.destroy());
+    convo.bubbles.clear();
+  }
+
+  // Small body reaction to the line's emotion (the emoji in the bubble covers the rest)
+  react(walker, emotion) {
+    const { sprite } = walker;
+    if (emotion === 'happy' || emotion === 'surprised') {
+      this.tweens.add({ targets: sprite, y: sprite.y - 8, duration: 150, yoyo: true, repeat: 1, ease: 'Sine.easeOut' });
+    } else if (emotion === 'angry' || emotion === 'scared') {
+      this.tweens.add({ targets: sprite, x: sprite.x + 3, duration: 50, yoyo: true, repeat: 3 });
+    }
+  }
+
+  floatIcon(walker, icon) {
+    const { x, y } = this.headPoint(walker);
+    const text = this.add.text(x, y, icon, { fontSize: '20px' }).setOrigin(0.5, 1);
+    this.overlay.add(text);
+    this.tweens.add({ targets: text, y: y - 30, alpha: 0, duration: 1200, onComplete: () => text.destroy() });
   }
 
   place(walker, depthSum) {

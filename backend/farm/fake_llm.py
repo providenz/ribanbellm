@@ -75,10 +75,18 @@ def _partner(instructions: str | None) -> str:
     return match.group(1) if match else 'toi'
 
 
-def fake_turn(partner: str, rng: random.Random) -> dict:
-    """One character agent's line; wants to leave about a third of the time."""
-    text, emotion = rng.choice(OPENERS + REPLIES + CLOSERS)
-    return {'text': text.format(other=partner), 'emotion': emotion, 'leave': rng.random() < LEAVE_PROBABILITY}
+def fake_turn(partner: str, prompt: str, rng: random.Random) -> dict:
+    """One character agent's line, following the turn's instruction (greet, talk, leave, goodbye)."""
+    if 'Salue' in prompt:
+        pool, leave = OPENERS, False
+    elif 'dernière réplique' in prompt or 'Dis-lui au revoir' in prompt:
+        pool, leave = CLOSERS, True
+    elif 'Tu peux partir' in prompt and rng.random() < LEAVE_PROBABILITY:
+        pool, leave = CLOSERS, True
+    else:
+        pool, leave = REPLIES, False
+    text, emotion = rng.choice(pool)
+    return {'text': text.format(other=partner), 'emotion': emotion, 'leave': leave}
 
 
 def fake_reflection(partner: str, rng: random.Random) -> dict:
@@ -121,14 +129,14 @@ def build_fake_model(rng: random.Random | None = None) -> FunctionModel:
         time.sleep(rng.uniform(*DELAY_SECONDS))
         tool = info.output_tools[0]
         fields = tool.parameters_json_schema['properties']
+        prompt = '\n'.join(str(part.content) for part in messages[-1].parts if hasattr(part, 'content'))
         if 'leave' in fields:  # a character agent's turn
-            args = fake_turn(_partner(info.instructions), rng)
+            args = fake_turn(_partner(info.instructions), prompt, rng)
         elif 'characters' in fields:  # seed_characters --llm
             args = fake_cast(rng)
         elif 'feeling_delta' in fields:  # a character agent's reflection
             args = fake_reflection(_partner(info.instructions), rng)
         else:  # the director's whole scene
-            prompt = '\n'.join(str(part.content) for part in messages[-1].parts if hasattr(part, 'content'))
             args = fake_conversation(prompt, rng)
         return ModelResponse(parts=[ToolCallPart(tool.name, args)])
 

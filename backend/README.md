@@ -30,7 +30,7 @@ To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-i
 
 Two engines, chosen with `CONVERSATION_ENGINE` in `.env`:
 
-- `agents` (default): each character is its own agent. It only knows its own personality, memories and feeling toward the other, speaks in turns (4 to 8 lines, it decides when to leave), then reflects on what it remembers and how its feeling changed. Feelings are one-sided.
+- `agents` (default): each character is its own agent. It only knows its own personality, memories and feeling toward the other, speaks in turns (4 to 8 lines: they greet each other, talk, and whoever decides to leave says goodbye, answered by a goodbye), then reflects on what it remembers and how its feeling changed. Feelings are one-sided.
 - `director`: one call writes the whole scene for both characters.
 
 `POST /api/conversations` streams the conversation as NDJSON events (`thinking`, `line`, then `end` or `error`), so the frontend can show each line as soon as it is written.

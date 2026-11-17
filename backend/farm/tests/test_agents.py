@@ -2,7 +2,9 @@ import pytest
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from farm.agents import MAX_LINES, MIN_LINES, run
+import re
+
+from farm.agents import MAX_LINES, MIN_LINES, TOPICS, pick_topic, run
 from farm.models import Character, Conversation, Feeling, Memory
 
 pytestmark = pytest.mark.django_db
@@ -37,13 +39,17 @@ def reflection(delta: int, text='Souvenir.') -> dict:
 
 
 class First:
-    """rng stub whose choice() returns the given character."""
+    """rng stub: choice() returns the given character when offered it, else the first option."""
 
-    def __init__(self, character):
+    def __init__(self, character, roll=0.9):
         self.character = character
+        self.roll = roll
 
     def choice(self, options):
-        return self.character
+        return self.character if self.character in options else options[0]
+
+    def random(self):
+        return self.roll
 
 
 @pytest.fixture
@@ -149,3 +155,67 @@ def test_abandoned_before_wrap_up_saves_nothing(pair):
     events.close()
 
     assert Conversation.objects.count() == 0
+
+
+def test_they_greet_each_other_first(pair):
+    a, b = pair
+    model = Scripted([turn(leave=True)] * MIN_LINES)
+
+    list(run(a, b, model=model, rng=First(a)))
+
+    assert 'Salue Grillon' in model.calls[0]
+    assert 'Salue Gérard en retour' in model.calls[1]
+
+
+def test_leaving_is_offered_only_after_the_greetings(pair):
+    model = Scripted([turn(leave=True)] * MIN_LINES)
+
+    events = list(run(*pair, model=model, rng=First(pair[0])))
+
+    assert len(lines_of(events)) == MIN_LINES  # greet, greet back, leave, goodbye back
+    assert not any('Tu peux partir' in call for call in model.calls[:2])
+    assert 'Tu peux partir' in model.calls[2]
+
+
+def test_the_one_who_stays_says_goodbye_back(pair):
+    a, b = pair
+    model = Scripted([turn(), turn(), turn(), turn('Bon, je file.', leave=True), turn('Au revoir!')])
+
+    events = list(run(a, b, model=model, rng=First(a)))
+
+    assert [e['text'] for e in lines_of(events)][-2:] == ['Bon, je file.', 'Au revoir!']
+    assert 'Grillon s\'en va. Dis-lui au revoir' in model.calls[4]
+
+
+def test_at_the_limit_the_second_to_last_speaker_leaves(pair):
+    model = Scripted([turn()] * 20)
+
+    events = list(run(*pair, model=model, rng=First(pair[0])))
+
+    assert len(lines_of(events)) == MAX_LINES
+    assert 'dernière réplique' in model.calls[MAX_LINES - 2]
+    assert 'Dis-lui au revoir' in model.calls[MAX_LINES - 1]
+
+
+def test_both_agents_get_the_same_topic(pair):
+    model = Scripted([turn(leave=True)] * MIN_LINES)
+
+    list(run(*pair, model=model, rng=First(pair[0])))
+
+    topics = [re.search(r'Sujet du jour: (.+)', call).group(1) for call in model.calls[:2]]
+    assert topics[0] == topics[1] == TOPICS[0]
+
+
+def test_prompts_steer_away_from_repeating_quirks_and_self_talk(pair):
+    model = Scripted([turn(leave=True)] * MIN_LINES)
+
+    list(run(*pair, model=model, rng=First(pair[0])))
+
+    assert 'pas à chaque réplique' in model.calls[0]
+    assert 'ne parles pas de toi' in model.calls[0]
+
+
+def test_pick_topic_is_sometimes_gossip_about_another_villager():
+    assert pick_topic(First(None, roll=0.9), ['Zigzag']) == TOPICS[0]
+    assert 'Zigzag' in pick_topic(First(None, roll=0.1), ['Zigzag'])
+    assert pick_topic(First(None, roll=0.1), []) == TOPICS[0]  # nobody to gossip about

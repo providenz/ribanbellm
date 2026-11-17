@@ -31,6 +31,8 @@ et échangent quelques répliques.
 
 Règles:
 - Écris 4 à 6 répliques au total, en alternant A et B, en français.
+- Les deux premières répliques sont des salutations (A salue B, B lui répond), les deux \
+dernières sont des au revoir.
 - Chaque réplique fait moins de 120 caractères: courte, drôle, percutante.
 - Chaque personnage a une voix très marquée: sa personnalité et son tic de langage doivent se sentir.
 - Si les personnages ont des souvenirs l'un de l'autre ou des ragots, utilise-les: blagues \

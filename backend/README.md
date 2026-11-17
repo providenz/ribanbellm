@@ -12,6 +12,18 @@ uv run python manage.py migrate
 uv run python manage.py seed_characters
 ```
 
+### Or run everything with Docker
+
+From the repository root (`backend/.env` is read if present, never copied into the image):
+
+```sh
+docker compose up --build   # game on http://localhost:5173, admin on http://localhost:8000/admin
+docker compose exec backend uv run --no-dev python manage.py createsuperuser
+docker compose exec backend uv run --no-dev python manage.py chat
+```
+
+Migrations and `seed_characters` run on each start. The database lives in the `db` volume (`docker compose down -v` resets it). Code changes need `docker compose up --build`.
+
 To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-in model returns random canned French dialogue after a short delay (0.8 to 2.5 s), with no API key needed. Memories and feelings are still updated as with a real model, with either engine.
 
 ## How conversations are written

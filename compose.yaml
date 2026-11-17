@@ -1,0 +1,25 @@
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      DB_PATH: /data/db.sqlite3
+      ALLOWED_HOSTS: backend,localhost,127.0.0.1
+    volumes:
+      - db:/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: .
+    environment:
+      API_URL: http://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  db:

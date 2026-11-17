@@ -3,7 +3,9 @@ import { LAYOUT, MAP, TILE_H, gridToScreen, screenToGrid, symbolAt, tileVariant 
 import {
   blockedFor, candidatePairs, chooseStep, findPath, lineDuration, pairKey, pickMeetingSpot, pickSpawnTiles, pickSplitTargets, tileKey,
 } from './sim.js';
-import { CHAR_H, makeCharacterTexture, makeGroundTextures, makeObjectTextures } from './sprites.js';
+import {
+  CHAR_H, characterKey, expressionFor, hopOffset, makeCharacterTextures, makeGroundTextures, makeObjectTextures,
+} from './sprites.js';
 import { readEvents } from './stream.js';
 import { ChatLog, feelingNotes } from './chat.js';
 
@@ -16,6 +18,8 @@ const PATH_RETRIES = 8; // a walker whose way is blocked waits and retries this 
 const PATH_RETRY_MS = 500;
 const GROUND_VARIANTS = { grass: 3, flowers: 2, path: 2 }; // texture count per ground kind
 const OBJECT_VARIANTS = { tree: ['tree0', 'tree1', 'pine'], house: ['house0', 'house1', 'house2'] };
+const BLINK_EVERY_MS = [2000, 6000];
+const BLINK_MS = 140;
 const EMOJI = { neutral: '', happy: '😄', annoyed: '😤', sad: '😢', surprised: '😮', smug: '😏', scared: '😱' };
 
 // Walker states: idle (waiting between steps), moving (wandering step), approaching (walking to a
@@ -119,7 +123,8 @@ class IsoScene extends Phaser.Scene {
   }
 
   addWalker(character, { col, row }) {
-    const sprite = this.add.image(0, 0, makeCharacterTexture(this, character)).setOrigin(0.5, 1);
+    makeCharacterTextures(this, character);
+    const sprite = this.add.image(0, 0, characterKey(character.id, 'neutral')).setOrigin(0.5, 1);
     const label = this.add
       .text(0, 0, character.name, { fontFamily: 'sans-serif', fontSize: '11px', color: '#ffffff' })
       .setOrigin(0.5, 0)
@@ -129,12 +134,36 @@ class IsoScene extends Phaser.Scene {
 
     const walker = {
       id: character.id, character, col, row, pos: { col, row }, sprite, label,
-      timer: null, state: 'idle', target: null, moving: null, onRemoved: null, conversation: null,
+      timer: null, blinkTimer: null, expression: 'neutral', state: 'idle', target: null, moving: null, onRemoved: null, conversation: null,
     };
     this.walkers.set(character.id, walker);
     this.occupied.add(tileKey(col, row));
     this.place(walker, col + row);
     this.scheduleStep(walker);
+    // Gentle breathing; the sprite's origin is at its feet, so it stretches upward
+    this.tweens.add({
+      targets: sprite, scaleY: 1.04, duration: Phaser.Math.Between(800, 1100), yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+    });
+    this.scheduleBlink(walker);
+  }
+
+  setExpression(walker, emotion) {
+    walker.expression = expressionFor(emotion);
+    walker.sprite.setTexture(characterKey(walker.id, walker.expression));
+  }
+
+  // Blink now and then, only with a neutral face (other faces are held on purpose)
+  scheduleBlink(walker) {
+    walker.blinkTimer = this.time.delayedCall(Phaser.Math.Between(...BLINK_EVERY_MS), () => {
+      if (!this.isPresent(walker)) return;
+      if (walker.expression === 'neutral') {
+        walker.sprite.setTexture(characterKey(walker.id, 'blink'));
+        this.time.delayedCall(BLINK_MS, () => {
+          if (this.isPresent(walker)) walker.sprite.setTexture(characterKey(walker.id, walker.expression));
+        });
+      }
+      this.scheduleBlink(walker);
+    });
   }
 
   removeWalker(walker) {
@@ -146,7 +175,9 @@ class IsoScene extends Phaser.Scene {
       convo.wake?.();
     }
     walker.timer?.remove();
+    walker.blinkTimer?.remove();
     this.tweens.killTweensOf(walker.pos);
+    this.tweens.killTweensOf(walker.sprite);
     this.occupied.delete(tileKey(walker.col, walker.row));
     if (walker.target) this.occupied.delete(tileKey(walker.target.col, walker.target.row));
     walker.sprite.destroy();
@@ -193,7 +224,7 @@ class IsoScene extends Phaser.Scene {
         row: next.row,
         duration: STEP_DURATION_MS,
         ease: 'Sine.easeInOut',
-        onUpdate: () => this.place(walker, depthSum),
+        onUpdate: (tween) => this.place(walker, depthSum, hopOffset(tween.progress)),
         onComplete: () => {
           this.occupied.delete(tileKey(walker.col, walker.row));
           walker.col = next.col;
@@ -326,6 +357,7 @@ class IsoScene extends Phaser.Scene {
       } else if (event.type === 'line') {
         const speaker = byName[event.speaker] ?? a;
         this.clearBubbles(convo);
+        this.setExpression(speaker, event.emotion);
         this.react(speaker, event.emotion);
         this.showBubble(convo, speaker, `${EMOJI[event.emotion] ?? ''} ${event.text}`.trim());
         this.chat.line(speaker.character.name, speaker.character.color, EMOJI[event.emotion], event.text);
@@ -363,6 +395,7 @@ class IsoScene extends Phaser.Scene {
       if (!this.isPresent(walker)) continue;
       walker.conversation = null;
       walker.state = 'leaving';
+      this.setExpression(walker, 'neutral');
       const done = () => {
         if (!this.isPresent(walker)) return;
         walker.state = 'idle';
@@ -409,13 +442,15 @@ class IsoScene extends Phaser.Scene {
     convo.bubbles.clear();
   }
 
-  // Small body reaction to the line's emotion (the emoji in the bubble covers the rest)
+  // Small body reaction to the line's emotion, on top of the face it now shows
   react(walker, emotion) {
     const { sprite } = walker;
     if (emotion === 'happy' || emotion === 'surprised') {
       this.tweens.add({ targets: sprite, y: sprite.y - 8, duration: 150, yoyo: true, repeat: 1, ease: 'Sine.easeOut' });
     } else if (emotion === 'annoyed' || emotion === 'scared') {
       this.tweens.add({ targets: sprite, x: sprite.x + 3, duration: 50, yoyo: true, repeat: 3 });
+    } else {
+      this.tweens.add({ targets: sprite, y: sprite.y - 3, duration: 120, yoyo: true, ease: 'Sine.easeOut' });
     }
   }
 
@@ -426,9 +461,10 @@ class IsoScene extends Phaser.Scene {
     this.tweens.add({ targets: text, y: y - 30, alpha: 0, duration: 1200, onComplete: () => text.destroy() });
   }
 
-  place(walker, depthSum) {
+  // `lift` raises the body (not its name) for the walking hop
+  place(walker, depthSum, lift = 0) {
     const { x, y } = gridToScreen(walker.pos.col, walker.pos.row);
-    walker.sprite.setPosition(x, y + FOOT_OFFSET);
+    walker.sprite.setPosition(x, y + FOOT_OFFSET + lift);
     walker.label.setPosition(x, y + FOOT_OFFSET + 1);
     // Same depth rule as objects, slightly above the object of its own cell
     walker.sprite.depth = depthSum + 0.6;

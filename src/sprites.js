@@ -1,7 +1,7 @@
 import { EDGE_H, TILE_H, TILE_W } from './map.js';
 
-export const CHAR_W = 32;
-export const CHAR_H = 46;
+export const CHAR_W = 40;
+export const CHAR_H = 56;
 
 // Small seeded generator, so textures come out the same on every load
 function seeded(seed) {
@@ -249,19 +249,115 @@ const ACCESSORIES = {
   },
 };
 
-// A colored blob with eyes looking right (flipX makes it look left) and its accessory.
-// Returns the texture key.
-export function makeCharacterTexture(scene, character) {
-  const key = `char-${character.id}`;
-  if (scene.textures.exists(key)) return key;
+export const EXPRESSIONS = ['neutral', 'happy', 'annoyed', 'sad', 'surprised', 'smug', 'scared', 'blink'];
 
+export const expressionFor = (emotion) => (EXPRESSIONS.includes(emotion) && emotion !== 'blink' ? emotion : 'neutral');
+
+export const characterKey = (id, expression) =>
+  `char-${id}-${EXPRESSIONS.includes(expression) ? expression : 'neutral'}`;
+
+// Vertical offset of a walking hop at `progress` (0 to 1) through a step: up, then back down
+export const hopOffset = (progress, height = 6) => -Math.sin(Math.PI * progress) * height;
+
+// The colour with each channel multiplied by `factor` (below 1 darkens)
+const shade = (color, factor) =>
+  [16, 8, 0].reduce((out, bits) => out | (Math.min(255, Math.round(((color >> bits) & 255) * factor)) << bits), 0);
+
+// Eyes sit at (EL, EY) and (ER, EY), looking right; flipX makes the character look left
+const EL = 17;
+const ER = 26;
+const EY = 28;
+const MX = 22; // mouth center
+const MY = 38;
+const INK = 0x1e1a24;
+
+function eyes(g, { r = 4.5, pupil = 2.2, dx = 1.5, dy = 0.5 } = {}) {
+  g.fillStyle(0xffffff).fillCircle(EL, EY, r).fillCircle(ER, EY, r);
+  g.fillStyle(INK).fillCircle(EL + dx, EY + dy, pupil).fillCircle(ER + dx, EY + dy, pupil);
+  g.fillStyle(0xffffff).fillCircle(EL + dx + 0.8, EY + dy - 0.8, 0.8).fillCircle(ER + dx + 0.8, EY + dy - 0.8, 0.8);
+}
+
+function arc(g, x, y, r, from, to, width = 1.8, color = INK) {
+  g.lineStyle(width, color).beginPath().arc(x, y, r, (from * Math.PI) / 180, (to * Math.PI) / 180).strokePath();
+}
+
+const FACES = {
+  neutral(g) {
+    eyes(g);
+    arc(g, MX, MY - 3, 4, 30, 150);
+  },
+  blink(g) {
+    g.lineStyle(1.8, INK).lineBetween(EL - 4, EY + 1, EL + 4, EY + 1).lineBetween(ER - 4, EY + 1, ER + 4, EY + 1);
+    arc(g, MX, MY - 3, 4, 30, 150);
+  },
+  happy(g) {
+    arc(g, EL, EY + 2, 4, 200, 340, 2);
+    arc(g, ER, EY + 2, 4, 200, 340, 2);
+    g.fillStyle(INK).slice(MX, MY - 2, 5.5, 0, Math.PI, false).fillPath();
+    g.fillStyle(0xe8607a).fillCircle(MX, MY + 1.5, 2.2);
+  },
+  annoyed(g) {
+    eyes(g, { r: 4, dy: 1 });
+    g.lineStyle(2.2, INK).lineBetween(EL - 5, EY - 6, EL + 3, EY - 3.5).lineBetween(ER + 5, EY - 6, ER - 3, EY - 3.5);
+    g.lineStyle(2, INK).lineBetween(MX - 4, MY + 0.5, MX + 4, MY - 0.5);
+  },
+  sad(g) {
+    eyes(g, { dy: 1.8, dx: 0.5 });
+    g.lineStyle(1.8, INK).lineBetween(EL - 4, EY - 4.5, EL + 3, EY - 6.5).lineBetween(ER + 4, EY - 4.5, ER - 3, EY - 6.5);
+    arc(g, MX, MY + 3, 4, 210, 330);
+    g.fillStyle(0x7fc4e8).fillCircle(EL - 2, EY + 7, 1.6).fillTriangle(EL - 3.5, EY + 6.5, EL - 0.5, EY + 6.5, EL - 2, EY + 3.5);
+  },
+  surprised(g) {
+    eyes(g, { r: 5.5, pupil: 1.8, dx: 1, dy: 0 });
+    g.lineStyle(1.6, INK).lineBetween(EL - 4, EY - 8, EL + 3, EY - 8.5).lineBetween(ER - 3, EY - 8.5, ER + 4, EY - 8);
+    g.fillStyle(INK).fillEllipse(MX, MY + 1, 5, 6);
+  },
+  smug(g, body) {
+    eyes(g, { dx: 2, dy: 1 });
+    // Heavy eyelids: the top half of each eye covered with the body's colour
+    g.fillStyle(body).fillRect(EL - 5.5, EY - 6, 11, 5.5).fillRect(ER - 5.5, EY - 6, 11, 5.5);
+    g.lineStyle(1.6, INK).lineBetween(EL - 5, EY - 0.5, EL + 5, EY - 0.5).lineBetween(ER - 5, EY - 0.5, ER + 5, EY - 0.5);
+    g.lineStyle(1.8, INK).beginPath().moveTo(MX - 4, MY).lineTo(MX + 2, MY).lineTo(MX + 5, MY - 2.5).strokePath();
+  },
+  scared(g) {
+    eyes(g, { r: 5.5, pupil: 1.5, dx: 0, dy: 0 });
+    g.lineStyle(1.6, INK).beginPath().moveTo(MX - 5, MY + 1);
+    [[-3, -1], [-1, 1], [1, -1], [3, 1], [5, -1]].forEach(([dx, dy]) => g.lineTo(MX + dx, MY + dy));
+    g.strokePath();
+    g.fillStyle(0x9fd8f0).fillCircle(ER + 8, EY - 5, 1.8).fillTriangle(ER + 6.4, EY - 5.5, ER + 9.6, EY - 5.5, ER + 8, EY - 9);
+  },
+};
+
+function drawBody(g, body) {
+  const dark = shade(body, 0.62);
+  g.fillStyle(0x000000, 0.25).fillEllipse(20, 52, 30, 8);
+  // Feet and little arms
+  g.fillStyle(dark).fillEllipse(14, 50, 10, 6).fillEllipse(27, 50, 10, 6);
+  g.fillStyle(shade(body, 0.8)).fillEllipse(6, 37, 6, 10).fillEllipse(34, 37, 6, 10);
+  // Body: darker base, lit main shape offset up-left, a soft highlight, then the outline
+  g.fillStyle(shade(body, 0.78)).fillRoundedRect(6, 18, 28, 32, 13);
+  g.fillStyle(body).fillRoundedRect(6, 18, 27, 29, 13);
+  g.fillStyle(0xffffff, 0.3).fillEllipse(13, 24, 8, 6);
+  g.lineStyle(1.5, dark).strokeRoundedRect(6, 18, 28, 32, 13);
+  // Cheeks
+  g.fillStyle(0xff7a8a, 0.35).fillEllipse(12, 35, 6, 3.5).fillEllipse(31, 35, 6, 3.5);
+}
+
+// One texture per expression for this character (see characterKey); accessories keep the old 32px
+// layout, shifted onto the bigger body.
+export function makeCharacterTextures(scene, character) {
+  if (scene.textures.exists(characterKey(character.id, 'neutral'))) return;
+  const body = parseInt(character.color.slice(1), 16);
   const g = scene.make.graphics({}, false);
-  g.fillStyle(0x000000, 0.25).fillEllipse(16, 42, 24, 8);
-  g.fillStyle(parseInt(character.color.slice(1), 16)).fillRoundedRect(4, 14, 24, 29, 11);
-  g.fillStyle(0xffffff).fillCircle(13, 24, 4).fillCircle(22, 24, 4);
-  g.fillStyle(0x111111).fillCircle(14.5, 24.5, 2).fillCircle(23.5, 24.5, 2);
-  (ACCESSORIES[character.accessory] ?? ACCESSORIES.none)(g);
-  g.generateTexture(key, CHAR_W, CHAR_H);
+  for (const expression of EXPRESSIONS) {
+    drawBody(g, body);
+    FACES[expression](g, body);
+    g.save();
+    g.translateCanvas(4, 4);
+    (ACCESSORIES[character.accessory] ?? ACCESSORIES.none)(g);
+    g.restore();
+    g.generateTexture(characterKey(character.id, expression), CHAR_W, CHAR_H);
+    g.clear();
+  }
   g.destroy();
-  return key;
 }

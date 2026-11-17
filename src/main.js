@@ -5,6 +5,7 @@ import {
 } from './sim.js';
 import { CHAR_H, makeCharacterTexture, makeTileTextures } from './sprites.js';
 import { readEvents } from './stream.js';
+import { ChatLog, feelingNotes } from './chat.js';
 
 const STEP_DELAY_MS = [1000, 3000]; // idle time between two steps
 const STEP_DURATION_MS = 600;
@@ -40,6 +41,8 @@ class IsoScene extends Phaser.Scene {
     this.pairCooldownUntil = new Map(); // pairKey -> scene time
     // Phaser freezes timers and tweens while the tab is hidden, so the world pauses with it
     this.time.addEvent({ delay: MEETING_CHECK_MS, loop: true, callback: () => this.checkMeetings() });
+
+    this.chat = new ChatLog(document.getElementById('chat-list'));
 
     this.status = this.add.text(12, 12, 'Chargement...', {
       fontFamily: 'monospace', fontSize: '14px', color: '#c8ccd8',
@@ -247,6 +250,7 @@ class IsoScene extends Phaser.Scene {
     const spotKeys = [spot.a, spot.b].map((tile) => tileKey(tile.col, tile.row));
     spotKeys.forEach((key) => this.reserved.add(key));
     this.inFlight++;
+    this.chat.separator(`${a.character.name} croise ${b.character.name}`);
     this.listen(a, b, convo); // the first line is written while they walk
     try {
       const stop = () => convo.cancelled;
@@ -314,9 +318,11 @@ class IsoScene extends Phaser.Scene {
         this.clearBubbles(convo);
         this.react(speaker, event.emotion);
         this.showBubble(convo, speaker, `${EMOJI[event.emotion] ?? ''} ${event.text}`.trim());
+        this.chat.line(speaker.character.name, speaker.character.color, EMOJI[event.emotion], event.text);
         await this.wait(lineDuration(event.text));
         this.clearBubbles(convo);
       } else if (event.type === 'end') {
+        feelingNotes(event.feelings).forEach((note) => this.chat.note(note));
         for (const [name, { before, after }] of Object.entries(event.feelings)) {
           if (after !== before && byName[name]) this.floatIcon(byName[name], after > before ? '❤️' : '😕');
         }
@@ -333,6 +339,7 @@ class IsoScene extends Phaser.Scene {
 
   async shrug(convo, a, b) {
     this.clearBubbles(convo);
+    this.chat.note(`${a.character.name} et ${b.character.name}: bof...`);
     for (const w of [a, b]) if (this.isPresent(w)) this.showBubble(convo, w, '🤷 bof...');
     await this.wait(2000);
   }
@@ -424,6 +431,7 @@ new Phaser.Game({
   width: 960,
   height: 640,
   backgroundColor: '#1b1d26',
+  parent: 'game',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   scene: IsoScene,
 });

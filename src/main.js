@@ -1,14 +1,22 @@
 import Phaser from 'phaser';
 import { BLOCK_H, MAP, TILE_H, gridToScreen, screenToGrid } from './map.js';
-import { chooseStep, findMeeting, lineDuration, pairKey, pickSpawnTiles, tileKey } from './sim.js';
+import {
+  candidatePairs, chooseStep, findPath, lineDuration, pairKey, pickMeetingSpot, pickSpawnTiles, pickSplitTargets, tileKey,
+} from './sim.js';
 import { CHAR_H, makeCharacterTexture, makeTileTextures } from './sprites.js';
+import { readEvents } from './stream.js';
 
 const STEP_DELAY_MS = [1000, 3000]; // idle time between two steps
 const STEP_DURATION_MS = 600;
 const FOOT_OFFSET = TILE_H / 2 + 4; // from a tile's top point to where a character stands
 const MEETING = { maxConcurrent: 1, globalGapMs: 20000, pairCooldownMs: 60000 };
 const MEETING_CHECK_MS = 250;
-const EMOJI = { neutral: '', happy: '😄', angry: '😠', sad: '😢', surprised: '😮', smug: '😏', scared: '😱' };
+const PATH_RETRIES = 3; // a walker whose way is blocked waits and retries this many times
+const PATH_RETRY_MS = 500;
+const EMOJI = { neutral: '', happy: '😄', annoyed: '😤', sad: '😢', surprised: '😮', smug: '😏', scared: '😱' };
+
+// Walker states: idle (waiting between steps), moving (wandering step), approaching (walking to a
+// meeting), talking, leaving (walking away after a meeting).
 
 class IsoScene extends Phaser.Scene {
   constructor() {
@@ -105,7 +113,10 @@ class IsoScene extends Phaser.Scene {
     this.world.add(sprite);
     this.overlay.add(label);
 
-    const walker = { id: character.id, character, col, row, pos: { col, row }, sprite, label, timer: null, state: 'idle' };
+    const walker = {
+      id: character.id, character, col, row, pos: { col, row }, sprite, label,
+      timer: null, state: 'idle', target: null, moving: null, onRemoved: null, conversation: null,
+    };
     this.walkers.set(character.id, walker);
     this.occupied.add(tileKey(col, row));
     this.place(walker, col + row);
@@ -113,9 +124,12 @@ class IsoScene extends Phaser.Scene {
   }
 
   removeWalker(walker) {
-    if (walker.conversation) {
-      walker.conversation.cancelled = true;
-      this.clearBubbles(walker.conversation);
+    const convo = walker.conversation;
+    if (convo) {
+      convo.cancelled = true;
+      convo.abort.abort();
+      this.clearBubbles(convo);
+      convo.wake?.();
     }
     walker.timer?.remove();
     this.tweens.killTweensOf(walker.pos);
@@ -124,18 +138,32 @@ class IsoScene extends Phaser.Scene {
     walker.sprite.destroy();
     walker.label.destroy();
     this.walkers.delete(walker.character.id);
+    walker.onRemoved?.(); // unblock anything waiting for its current step
+  }
+
+  isPresent(walker) {
+    return this.walkers.get(walker.id) === walker;
   }
 
   scheduleStep(walker) {
-    walker.timer = this.time.delayedCall(Phaser.Math.Between(...STEP_DELAY_MS), () => this.step(walker));
+    walker.timer = this.time.delayedCall(Phaser.Math.Between(...STEP_DELAY_MS), () => this.wander(walker));
   }
 
-  step(walker) {
+  async wander(walker) {
     const next = chooseStep(MAP, this.occupied, walker.col, walker.row, Math.random);
     if (!next) return this.scheduleStep(walker);
-
-    // Hold both tiles during the move so nobody walks into us
     walker.state = 'moving';
+    await this.moveStep(walker, next);
+    // A meeting may have claimed this walker during the step
+    if (walker.state === 'moving' && this.isPresent(walker)) {
+      walker.state = 'idle';
+      this.scheduleStep(walker);
+    }
+  }
+
+  // Move one tile; resolves when the step is done (or the walker is removed).
+  moveStep(walker, next) {
+    // Hold both tiles during the move so nobody walks into us
     walker.target = next;
     this.occupied.add(tileKey(next.col, next.row));
     const goingRight = gridToScreen(next.col, next.row).x > gridToScreen(walker.col, walker.row).x;
@@ -143,98 +171,185 @@ class IsoScene extends Phaser.Scene {
     // Draw at the depth of the nearer tile for the whole move, so blocks never cut through us
     const depthSum = Math.max(walker.col + walker.row, next.col + next.row);
 
-    this.tweens.add({
-      targets: walker.pos,
-      col: next.col,
-      row: next.row,
-      duration: STEP_DURATION_MS,
-      ease: 'Sine.easeInOut',
-      onUpdate: () => this.place(walker, depthSum),
-      onComplete: () => {
-        this.occupied.delete(tileKey(walker.col, walker.row));
-        walker.col = next.col;
-        walker.row = next.row;
-        walker.target = null;
-        walker.state = 'idle';
-        this.place(walker, next.col + next.row);
-        this.scheduleStep(walker);
-      },
+    walker.moving = new Promise((resolve) => {
+      walker.onRemoved = resolve;
+      this.tweens.add({
+        targets: walker.pos,
+        col: next.col,
+        row: next.row,
+        duration: STEP_DURATION_MS,
+        ease: 'Sine.easeInOut',
+        onUpdate: () => this.place(walker, depthSum),
+        onComplete: () => {
+          this.occupied.delete(tileKey(walker.col, walker.row));
+          walker.col = next.col;
+          walker.row = next.row;
+          walker.target = null;
+          walker.moving = null;
+          walker.onRemoved = null;
+          this.place(walker, next.col + next.row);
+          resolve();
+        },
+      });
     });
+    return walker.moving;
+  }
+
+  // Walk along a shortest path, re-planning when someone is in the way. Resolves to true on arrival.
+  async walkTo(walker, dest, shouldStop = () => false) {
+    if (walker.moving) await walker.moving;
+    let failures = 0;
+    while (this.isPresent(walker) && !shouldStop()) {
+      if (walker.col === dest.col && walker.row === dest.row) return true;
+      const blocked = new Set(this.occupied);
+      blocked.delete(tileKey(walker.col, walker.row));
+      const path = findPath(MAP, blocked, walker, dest);
+      if (!path) {
+        if (++failures > PATH_RETRIES) return false;
+        await this.wait(PATH_RETRY_MS);
+        continue;
+      }
+      await this.moveStep(walker, path[0]);
+    }
+    return false;
+  }
+
+  // Where a walker stands, or will stand once its current step ends
+  standingTile(walker) {
+    return walker.target ?? { col: walker.col, row: walker.row };
   }
 
   checkMeetings() {
-    const pair = findMeeting(
+    const pairs = candidatePairs(
       [...this.walkers.values()],
       { now: this.time.now, inFlight: this.inFlight, lastEndedAt: this.lastEndedAt, pairCooldownUntil: this.pairCooldownUntil },
       MEETING,
+      Math.random,
     );
-    if (pair) this.converse(...pair);
+    for (const [a, b] of pairs) {
+      const blocked = new Set(this.occupied);
+      for (const w of [a, b]) {
+        blocked.delete(tileKey(w.col, w.row));
+        if (w.target) blocked.delete(tileKey(w.target.col, w.target.row));
+      }
+      const spot = pickMeetingSpot(MAP, blocked, this.standingTile(a), this.standingTile(b));
+      if (spot) return this.meet(a, b, spot);
+    }
   }
 
-  async converse(a, b) {
-    const convo = { cancelled: false, bubbles: new Set() };
+  async meet(a, b, spot) {
+    const convo = { cancelled: false, bubbles: new Set(), queue: [], wake: null, abort: new AbortController() };
     for (const w of [a, b]) {
       w.timer?.remove();
-      w.state = 'talking';
+      w.state = 'approaching';
       w.conversation = convo;
     }
-    this.face(a, b);
-    this.face(b, a);
     this.inFlight++;
+    this.listen(a, b, convo); // the first line is written while they walk
     try {
-      this.showBubble(convo, a, '...');
-      this.showBubble(convo, b, '...');
-      let result = null;
-      try {
-        result = await this.requestConversation(a, b);
-      } catch (error) {
-        console.warn('Conversation failed:', error.message);
-      }
-      this.clearBubbles(convo);
+      const stop = () => convo.cancelled;
+      const arrived = await Promise.all([this.walkTo(a, spot.a, stop), this.walkTo(b, spot.b, stop)]);
       if (convo.cancelled) return;
-
-      if (!result) {
-        this.showBubble(convo, a, '🤷 bof...');
-        this.showBubble(convo, b, '🤷 bof...');
-        await this.wait(2000);
+      if (!arrived.every(Boolean)) {
+        convo.abort.abort();
+        await this.shrug(convo, a, b);
         return;
       }
-      for (const line of result.lines) {
-        if (convo.cancelled) return;
-        const speaker = line.speaker === a.character.name ? a : b;
-        this.react(speaker, line.emotion);
-        this.showBubble(convo, speaker, `${EMOJI[line.emotion] ?? ''} ${line.text}`.trim());
-        await this.wait(lineDuration(line.text));
-        this.clearBubbles(convo);
-      }
-      const delta = result.score_after - result.score_before;
-      if (delta !== 0 && !convo.cancelled) {
-        this.floatIcon(a, delta > 0 ? '❤️' : '⚡');
-        this.floatIcon(b, delta > 0 ? '❤️' : '⚡');
-        await this.wait(1200);
-      }
+      this.face(a, b);
+      this.face(b, a);
+      a.state = b.state = 'talking';
+      await this.play(convo, a, b);
     } finally {
       this.clearBubbles(convo);
+      convo.abort.abort();
       this.inFlight--;
       this.lastEndedAt = this.time.now;
       this.pairCooldownUntil.set(pairKey(a.id, b.id), this.time.now + MEETING.pairCooldownMs);
-      for (const w of [a, b]) {
-        if (this.walkers.get(w.id) !== w) continue; // removed by the slider meanwhile
-        w.conversation = null;
-        w.state = 'idle';
-        this.scheduleStep(w);
+      this.split(a, b);
+    }
+  }
+
+  // Fetch the conversation and queue its events as they arrive.
+  async listen(a, b, convo) {
+    const push = (event) => {
+      convo.queue.push(event);
+      convo.wake?.();
+    };
+    try {
+      const response = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ a_id: a.id, b_id: b.id }),
+        signal: convo.abort.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await readEvents(response, push);
+    } catch (error) {
+      if (error.name !== 'AbortError') console.warn('Conversation failed:', error.message);
+      push({ type: 'error', message: error.message });
+    }
+    push({ type: 'closed' });
+  }
+
+  async nextEvent(convo) {
+    while (!convo.queue.length && !convo.cancelled) await new Promise((resolve) => (convo.wake = resolve));
+    convo.wake = null;
+    return convo.queue.shift();
+  }
+
+  // Play queued events: "..." while a character thinks, one line at a time, then the feelings.
+  async play(convo, a, b) {
+    const byName = { [a.character.name]: a, [b.character.name]: b };
+    for (;;) {
+      const event = await this.nextEvent(convo);
+      if (convo.cancelled || !event) return;
+      if (event.type === 'thinking') {
+        this.clearBubbles(convo);
+        if (byName[event.speaker]) this.showBubble(convo, byName[event.speaker], '...');
+      } else if (event.type === 'line') {
+        const speaker = byName[event.speaker] ?? a;
+        this.clearBubbles(convo);
+        this.react(speaker, event.emotion);
+        this.showBubble(convo, speaker, `${EMOJI[event.emotion] ?? ''} ${event.text}`.trim());
+        await this.wait(lineDuration(event.text));
+        this.clearBubbles(convo);
+      } else if (event.type === 'end') {
+        for (const [name, { before, after }] of Object.entries(event.feelings)) {
+          if (after !== before && byName[name]) this.floatIcon(byName[name], after > before ? '❤️' : '😕');
+        }
+        await this.wait(1200);
+        return;
+      } else {
+        // error, or the stream closed without an end
+        await this.shrug(convo, a, b);
+        return;
       }
     }
   }
 
-  async requestConversation(a, b) {
-    const response = await fetch('/api/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ a_id: a.id, b_id: b.id }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+  async shrug(convo, a, b) {
+    this.clearBubbles(convo);
+    for (const w of [a, b]) if (this.isPresent(w)) this.showBubble(convo, w, '🤷 bof...');
+    await this.wait(2000);
+  }
+
+  // Both walk a few tiles away from each other, then go back to wandering.
+  split(a, b) {
+    const blocked = new Set(this.occupied);
+    for (const w of [a, b]) blocked.delete(tileKey(w.col, w.row));
+    const targets = pickSplitTargets(MAP, blocked, a, b, Math.random);
+    for (const [walker, target] of [[a, targets.a], [b, targets.b]]) {
+      if (!this.isPresent(walker)) continue;
+      walker.conversation = null;
+      walker.state = 'leaving';
+      const done = () => {
+        if (!this.isPresent(walker)) return;
+        walker.state = 'idle';
+        this.scheduleStep(walker);
+      };
+      if (target) this.walkTo(walker, target).then(done);
+      else done();
+    }
   }
 
   wait(ms) {
@@ -278,7 +393,7 @@ class IsoScene extends Phaser.Scene {
     const { sprite } = walker;
     if (emotion === 'happy' || emotion === 'surprised') {
       this.tweens.add({ targets: sprite, y: sprite.y - 8, duration: 150, yoyo: true, repeat: 1, ease: 'Sine.easeOut' });
-    } else if (emotion === 'angry' || emotion === 'scared') {
+    } else if (emotion === 'annoyed' || emotion === 'scared') {
       this.tweens.add({ targets: sprite, x: sprite.x + 3, duration: 50, yoyo: true, repeat: 3 });
     }
   }

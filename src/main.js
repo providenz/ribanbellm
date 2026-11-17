@@ -1,36 +1,11 @@
 import Phaser from 'phaser';
+import { BLOCK_H, MAP, TILE_H, gridToScreen, screenToGrid } from './map.js';
+import { chooseStep, pickSpawnTiles, tileKey } from './sim.js';
+import { makeCharacterTexture, makeTileTextures } from './sprites.js';
 
-const TILE_W = 64; // diamond width
-const TILE_H = 32; // diamond height (2:1 isometric)
-const BLOCK_H = 24; // height of a raised block's side faces
-
-// 0 = floor, 1 = raised block
-const MAP = [
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-  [0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-  [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-  [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-  [0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-];
-
-// Grid (col, row) -> screen position of the tile's top-center point
-function gridToScreen(col, row) {
-  return { x: (col - row) * (TILE_W / 2), y: (col + row) * (TILE_H / 2) };
-}
-
-// Screen position -> grid (col, row), inverse of gridToScreen
-function screenToGrid(x, y) {
-  const col = Math.floor(x / TILE_W + y / TILE_H);
-  const row = Math.floor(y / TILE_H - x / TILE_W);
-  return { col, row };
-}
+const STEP_DELAY_MS = [1000, 3000]; // idle time between two steps
+const STEP_DURATION_MS = 600;
+const FOOT_OFFSET = TILE_H / 2 + 4; // from a tile's top point to where a character stands
 
 class IsoScene extends Phaser.Scene {
   constructor() {
@@ -38,114 +13,148 @@ class IsoScene extends Phaser.Scene {
   }
 
   create() {
-    this.makeTextures();
-
-    const rows = MAP.length;
-    const cols = MAP[0].length;
+    makeTileTextures(this);
     this.world = this.add.container(this.scale.width / 2, 80);
+    this.drawMap();
+    this.setupHover();
+    // Name labels live above the whole map so floor tiles never hide them
+    this.overlay = this.add.container(this.world.x, this.world.y);
 
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
+    this.cast = []; // all active characters from the API, in stable order
+    this.walkers = new Map(); // character id -> walker on screen
+    this.occupied = new Set(); // tileKey of tiles held by a walker
+
+    this.status = this.add.text(12, 12, 'Chargement...', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#c8ccd8',
+    });
+
+    const slider = document.getElementById('population');
+    const count = document.getElementById('population-count');
+    slider.addEventListener('input', () => {
+      count.textContent = slider.value;
+      this.setPopulation(Number(slider.value));
+    });
+    this.loadCast(Number(slider.value));
+  }
+
+  drawMap() {
+    MAP.forEach((cells, row) =>
+      cells.forEach((cell, col) => {
         const { x, y } = gridToScreen(col, row);
-        const key = MAP[row][col] === 1 ? 'block' : (col + row) % 2 ? 'floorA' : 'floorB';
+        const key = cell === 1 ? 'block' : (col + row) % 2 ? 'floorA' : 'floorB';
         // Blocks are drawn raised: their top face starts BLOCK_H above the floor
-        const img = this.add.image(x, key === 'block' ? y - BLOCK_H : y, key).setOrigin(0.5, 0);
-        img.depth = col + row + (key === 'block' ? 0.5 : 0);
+        const img = this.add.image(x, cell === 1 ? y - BLOCK_H : y, key).setOrigin(0.5, 0);
+        img.depth = col + row + (cell === 1 ? 0.5 : 0);
         this.world.add(img);
-      }
-    }
+      }),
+    );
+  }
 
+  setupHover() {
     this.hover = this.add.image(0, 0, 'hover').setOrigin(0.5, 0).setVisible(false);
     this.hover.depth = 1000;
     this.world.add(this.hover);
-
-    this.player = { col: 0, row: 0, sprite: this.add.image(0, 0, 'player').setOrigin(0.5, 1) };
-    this.world.add(this.player.sprite);
-    this.placePlayer();
-
     this.input.on('pointermove', (p) => {
       const g = screenToGrid(p.x - this.world.x, p.y - this.world.y);
-      const inside = g.col >= 0 && g.row >= 0 && g.col < cols && g.row < rows;
+      const inside = MAP[g.row]?.[g.col] !== undefined;
       this.hover.setVisible(inside);
       if (inside) {
         const { x, y } = gridToScreen(g.col, g.row);
         this.hover.setPosition(x, y);
       }
     });
+  }
 
-    const moves = { LEFT: [-1, 0], RIGHT: [1, 0], UP: [0, -1], DOWN: [0, 1] };
-    for (const [key, [dc, dr]] of Object.entries(moves)) {
-      this.input.keyboard.on(`keydown-${key}`, () => this.tryMove(dc, dr));
+  async loadCast(population) {
+    try {
+      const response = await fetch('/api/characters');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.cast = await response.json();
+    } catch (error) {
+      this.status.setText(`Backend injoignable (${error.message}).\nLancez: cd backend && uv run python manage.py runserver`);
+      return;
     }
-
-    this.add.text(12, 12, 'Arrow keys: move  |  Mouse: hover tiles', { fontFamily: 'monospace', fontSize: '14px', color: '#c8ccd8' });
+    this.status.setText('');
+    this.setPopulation(population);
   }
 
-  tryMove(dc, dr) {
-    const col = this.player.col + dc;
-    const row = this.player.row + dr;
-    if (MAP[row]?.[col] !== 0) return; // out of bounds or blocked
-    this.player.col = col;
-    this.player.row = row;
-    this.placePlayer();
+  // Keep the first `n` characters of the cast on screen (stable order, so the same ones leave first).
+  setPopulation(n) {
+    const wanted = new Set(this.cast.slice(0, n).map((c) => c.id));
+    for (const [id, walker] of this.walkers) if (!wanted.has(id)) this.removeWalker(walker);
+
+    const missing = this.cast.slice(0, n).filter((c) => !this.walkers.has(c.id));
+    const tiles = pickSpawnTiles(MAP, this.occupied, missing.length, Math.random);
+    missing.forEach((character, i) => tiles[i] && this.addWalker(character, tiles[i]));
   }
 
-  placePlayer() {
-    const { col, row, sprite } = this.player;
-    const { x, y } = gridToScreen(col, row);
-    sprite.setPosition(x, y + TILE_H / 2 + 4);
+  addWalker(character, { col, row }) {
+    const sprite = this.add.image(0, 0, makeCharacterTexture(this, character)).setOrigin(0.5, 1);
+    const label = this.add
+      .text(0, 0, character.name, { fontFamily: 'sans-serif', fontSize: '11px', color: '#ffffff' })
+      .setOrigin(0.5, 0)
+      .setStroke('#1b1d26', 3);
+    this.world.add(sprite);
+    this.overlay.add(label);
+
+    const walker = { character, col, row, pos: { col, row }, sprite, label, timer: null };
+    this.walkers.set(character.id, walker);
+    this.occupied.add(tileKey(col, row));
+    this.place(walker, col + row);
+    this.scheduleStep(walker);
+  }
+
+  removeWalker(walker) {
+    walker.timer?.remove();
+    this.tweens.killTweensOf(walker.pos);
+    this.occupied.delete(tileKey(walker.col, walker.row));
+    if (walker.target) this.occupied.delete(tileKey(walker.target.col, walker.target.row));
+    walker.sprite.destroy();
+    walker.label.destroy();
+    this.walkers.delete(walker.character.id);
+  }
+
+  scheduleStep(walker) {
+    walker.timer = this.time.delayedCall(Phaser.Math.Between(...STEP_DELAY_MS), () => this.step(walker));
+  }
+
+  step(walker) {
+    const next = chooseStep(MAP, this.occupied, walker.col, walker.row, Math.random);
+    if (!next) return this.scheduleStep(walker);
+
+    // Hold both tiles during the move so nobody walks into us
+    walker.target = next;
+    this.occupied.add(tileKey(next.col, next.row));
+    const goingRight = gridToScreen(next.col, next.row).x > gridToScreen(walker.col, walker.row).x;
+    walker.sprite.setFlipX(!goingRight);
+    // Draw at the depth of the nearer tile for the whole move, so blocks never cut through us
+    const depthSum = Math.max(walker.col + walker.row, next.col + next.row);
+
+    this.tweens.add({
+      targets: walker.pos,
+      col: next.col,
+      row: next.row,
+      duration: STEP_DURATION_MS,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => this.place(walker, depthSum),
+      onComplete: () => {
+        this.occupied.delete(tileKey(walker.col, walker.row));
+        walker.col = next.col;
+        walker.row = next.row;
+        walker.target = null;
+        this.place(walker, next.col + next.row);
+        this.scheduleStep(walker);
+      },
+    });
+  }
+
+  place(walker, depthSum) {
+    const { x, y } = gridToScreen(walker.pos.col, walker.pos.row);
+    walker.sprite.setPosition(x, y + FOOT_OFFSET);
+    walker.label.setPosition(x, y + FOOT_OFFSET + 1);
     // Same depth rule as tiles, slightly above the floor and blocks of its own cell
-    sprite.depth = col + row + 0.6;
+    walker.sprite.depth = depthSum + 0.6;
     this.world.sort('depth');
-  }
-
-  makeTextures() {
-    const hw = TILE_W / 2;
-    const hh = TILE_H / 2;
-    const diamond = (g, ox, oy, color, stroke) => {
-      const pts = [
-        { x: ox + hw, y: oy },
-        { x: ox + TILE_W, y: oy + hh },
-        { x: ox + hw, y: oy + TILE_H },
-        { x: ox, y: oy + hh },
-      ];
-      g.fillStyle(color).fillPoints(pts, true);
-      if (stroke !== undefined) g.lineStyle(1, stroke).strokePoints(pts, true);
-    };
-
-    const g = this.make.graphics({}, false);
-
-    diamond(g, 0, 0, 0x4f7a4a, 0x3d5f39);
-    g.generateTexture('floorA', TILE_W, TILE_H);
-    g.clear();
-    diamond(g, 0, 0, 0x5a8a54, 0x3d5f39);
-    g.generateTexture('floorB', TILE_W, TILE_H);
-    g.clear();
-
-    // Raised block: top face + left and right side faces
-    diamond(g, 0, 0, 0xa8a29a);
-    g.fillStyle(0x7d7770).fillPoints([
-      { x: 0, y: hh }, { x: hw, y: TILE_H }, { x: hw, y: TILE_H + BLOCK_H }, { x: 0, y: hh + BLOCK_H },
-    ], true);
-    g.fillStyle(0x625d57).fillPoints([
-      { x: TILE_W, y: hh }, { x: hw, y: TILE_H }, { x: hw, y: TILE_H + BLOCK_H }, { x: TILE_W, y: hh + BLOCK_H },
-    ], true);
-    g.generateTexture('block', TILE_W, TILE_H + BLOCK_H);
-    g.clear();
-
-    g.lineStyle(2, 0xffe36e).strokePoints([
-      { x: hw, y: 1 }, { x: TILE_W - 1, y: hh }, { x: hw, y: TILE_H - 1 }, { x: 1, y: hh },
-    ], true);
-    g.generateTexture('hover', TILE_W, TILE_H);
-    g.clear();
-
-    // Player: simple capsule-ish figure
-    g.fillStyle(0x000000, 0.25).fillEllipse(12, 34, 20, 8);
-    g.fillStyle(0xe0604a).fillRoundedRect(4, 8, 16, 24, 6);
-    g.fillStyle(0xf2d0b0).fillCircle(12, 8, 7);
-    g.generateTexture('player', 24, 38);
-
-    g.destroy();
   }
 }
 

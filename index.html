@@ -1,12 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>isogame</title>
-    <style>html, body { margin: 0; height: 100%; background: #1b1d26; overflow: hidden; }</style>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1b1d26; overflow: hidden; }
+      #controls {
+        position: fixed; top: 12px; right: 12px; z-index: 1;
+        padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.45);
+        color: #c8ccd8; font: 13px sans-serif; display: flex; gap: 8px; align-items: center;
+      }
+    </style>
   </head>
   <body>
+    <div id="controls">
+      <label for="population">Personnages</label>
+      <input id="population" type="range" min="2" max="10" value="5" />
+      <span id="population-count">5</span>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

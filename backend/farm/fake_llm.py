@@ -85,6 +85,35 @@ def fake_reflection(partner: str, rng: random.Random) -> dict:
     return {'memory': {'text': rng.choice(MEMORIES).format(other=partner)}, 'feeling_delta': rng.randint(-2, 2)}
 
 
+CAST_NOUNS = ['Théière', 'Radis', 'Hibou', 'Parapluie', 'Cornichon', 'Taupe', 'Bougie', 'Homard', 'Brosse', 'Navet']
+CAST_TITLES = ['Professeur', 'Tante', 'Capitaine', 'Duchesse', 'Maître', 'Petit', 'Docteur', 'Sire']
+CAST_TRAITS = [
+    'persuadé d\'être une star de cinéma',
+    'qui collectionne les bruits bizarres',
+    'terrifié par les mardis',
+    'qui se prend pour un grand explorateur',
+    'convaincu que la Lune le suit',
+]
+CAST_QUIRKS = ['Finit chaque phrase par "et voilà le travail".', 'Rime sans le vouloir.', 'Chuchote les mots importants.']
+
+
+def fake_cast(rng: random.Random, size: int = 10) -> dict:
+    """Arguments for generation.Cast: distinct made-up characters."""
+    names = rng.sample([f'{t} {n}' for t in CAST_TITLES for n in CAST_NOUNS], size)
+    return {
+        'characters': [
+            {
+                'name': name,
+                'personality': f'{name.split()[-1]} {rng.choice(CAST_TRAITS)}.',
+                'speech_quirk': rng.choice(CAST_QUIRKS),
+                'color': '#%06x' % rng.randrange(0x1000000),
+                'accessory': rng.choice(['none', 'hat', 'glasses', 'bow', 'antenna', 'mustache', 'crown']),
+            }
+            for name in names
+        ]
+    }
+
+
 def build_fake_model(rng: random.Random | None = None) -> FunctionModel:
     rng = rng or random.Random()
 
@@ -94,6 +123,8 @@ def build_fake_model(rng: random.Random | None = None) -> FunctionModel:
         fields = tool.parameters_json_schema['properties']
         if 'leave' in fields:  # a character agent's turn
             args = fake_turn(_partner(info.instructions), rng)
+        elif 'characters' in fields:  # seed_characters --llm
+            args = fake_cast(rng)
         elif 'feeling_delta' in fields:  # a character agent's reflection
             args = fake_reflection(_partner(info.instructions), rng)
         else:  # the director's whole scene

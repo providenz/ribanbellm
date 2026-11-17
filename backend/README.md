@@ -35,6 +35,15 @@ Two engines, chosen with `CONVERSATION_ENGINE` in `.env`:
 
 `POST /api/conversations` streams the conversation as NDJSON events (`thinking`, `line`, then `end` or `error`), so the frontend can show each line as soon as it is written.
 
+## Invent new characters
+
+```sh
+uv run python manage.py seed_characters --llm             # 5 new characters invented by the LLM
+uv run python manage.py seed_characters --llm --count 3   # 1 to 10
+```
+
+They are added next to the existing ones (names already taken are skipped). Without `--llm`, `seed_characters` creates or updates the fixed starter cast. With `LLM_PROVIDER=fake`, the names and personalities are drawn from canned pieces.
+
 ## Make two characters talk
 
 ```sh
@@ -43,6 +52,12 @@ uv run python manage.py chat "Gérard" "Grillon"   # chosen pair
 ```
 
 Each conversation updates both characters' memories and each one's feeling toward the other, so running the same pair again continues the story.
+
+To start the story over (characters are kept):
+
+```sh
+uv run python manage.py reset_farm         # asks for confirmation; --yes to skip
+```
 
 ## HTTP API
 

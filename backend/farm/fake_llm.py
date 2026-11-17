@@ -1,7 +1,8 @@
 """A free stand-in for the LLM (LLM_PROVIDER=fake): random canned French dialogue, no API call.
 
-It goes through the real director pipeline (structured output, memories, feelings),
-so everything downstream behaves as with a real model.
+It answers both engines (director scenes, character agent turns and reflections) through the
+real pipeline (structured output, memories, feelings), so everything downstream behaves as
+with a real model.
 """
 
 import random
@@ -13,6 +14,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 # Simulated thinking time, so the frontend's "..." bubble has something to show
 DELAY_SECONDS = (0.8, 2.5)
+LEAVE_PROBABILITY = 0.35
 
 OPENERS = [
     ('Tiens, {other}! Justement je pensais à toi.', 'happy'),
@@ -68,12 +70,35 @@ def fake_conversation(prompt: str, rng: random.Random) -> dict:
     }
 
 
+def _partner(instructions: str | None) -> str:
+    match = re.search(r'Tu croises (.+?)\.', instructions or '')
+    return match.group(1) if match else 'toi'
+
+
+def fake_turn(partner: str, rng: random.Random) -> dict:
+    """One character agent's line; wants to leave about a third of the time."""
+    text, emotion = rng.choice(OPENERS + REPLIES + CLOSERS)
+    return {'text': text.format(other=partner), 'emotion': emotion, 'leave': rng.random() < LEAVE_PROBABILITY}
+
+
+def fake_reflection(partner: str, rng: random.Random) -> dict:
+    return {'memory': {'text': rng.choice(MEMORIES).format(other=partner)}, 'feeling_delta': rng.randint(-2, 2)}
+
+
 def build_fake_model(rng: random.Random | None = None) -> FunctionModel:
     rng = rng or random.Random()
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         time.sleep(rng.uniform(*DELAY_SECONDS))
-        prompt = '\n'.join(str(part.content) for part in messages[-1].parts if hasattr(part, 'content'))
-        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, fake_conversation(prompt, rng))])
+        tool = info.output_tools[0]
+        fields = tool.parameters_json_schema['properties']
+        if 'leave' in fields:  # a character agent's turn
+            args = fake_turn(_partner(info.instructions), rng)
+        elif 'feeling_delta' in fields:  # a character agent's reflection
+            args = fake_reflection(_partner(info.instructions), rng)
+        else:  # the director's whole scene
+            prompt = '\n'.join(str(part.content) for part in messages[-1].parts if hasattr(part, 'content'))
+            args = fake_conversation(prompt, rng)
+        return ModelResponse(parts=[ToolCallPart(tool.name, args)])
 
     return FunctionModel(respond, model_name='fake')

@@ -81,9 +81,9 @@ def stream(a: Character, b: Character, *, model: Model | None = None) -> Iterato
     """Validate, then return the configured engine's event generator."""
     if a.pk == b.pk:
         raise ValueError('A character cannot talk to itself.')
-    from . import director  # engines import this module
+    from . import agents, director  # engines import this module
 
-    engines = {'director': director.run}
+    engines = {'agents': agents.run, 'director': director.run}
     engine = engines.get(settings.CONVERSATION_ENGINE)
     if engine is None:
         raise ImproperlyConfigured(

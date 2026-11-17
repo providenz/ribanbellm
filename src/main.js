@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
-import { BLOCK_H, MAP, TILE_H, gridToScreen, screenToGrid } from './map.js';
+import { LAYOUT, MAP, TILE_H, gridToScreen, screenToGrid, symbolAt, tileVariant } from './map.js';
 import {
   blockedFor, candidatePairs, chooseStep, findPath, lineDuration, pairKey, pickMeetingSpot, pickSpawnTiles, pickSplitTargets, tileKey,
 } from './sim.js';
-import { CHAR_H, makeCharacterTexture, makeTileTextures } from './sprites.js';
+import { CHAR_H, makeCharacterTexture, makeGroundTextures, makeObjectTextures } from './sprites.js';
 import { readEvents } from './stream.js';
 import { ChatLog, feelingNotes } from './chat.js';
 
@@ -14,6 +14,8 @@ const MEETING = { maxConcurrent: 1, globalGapMs: 20000, pairCooldownMs: 60000 };
 const MEETING_CHECK_MS = 250;
 const PATH_RETRIES = 8; // a walker whose way is blocked waits and retries this many times in a row
 const PATH_RETRY_MS = 500;
+const GROUND_VARIANTS = { grass: 3, flowers: 2, path: 2 }; // texture count per ground kind
+const OBJECT_VARIANTS = { tree: ['tree0', 'tree1', 'pine'], house: ['house0', 'house1', 'house2'] };
 const EMOJI = { neutral: '', happy: '😄', annoyed: '😤', sad: '😢', surprised: '😮', smug: '😏', scared: '😱' };
 
 // Walker states: idle (waiting between steps), moving (wandering step), approaching (walking to a
@@ -25,8 +27,9 @@ class IsoScene extends Phaser.Scene {
   }
 
   create() {
-    makeTileTextures(this);
-    this.world = this.add.container(this.scale.width / 2, 80);
+    makeGroundTextures(this);
+    makeObjectTextures(this);
+    this.world = this.add.container(this.scale.width / 2, 90);
     this.drawMap();
     this.setupHover();
     // Name labels live above the whole map so floor tiles never hide them
@@ -58,14 +61,21 @@ class IsoScene extends Phaser.Scene {
   }
 
   drawMap() {
+    const last = LAYOUT.length - 1;
     MAP.forEach((cells, row) =>
-      cells.forEach((cell, col) => {
+      cells.forEach((_, col) => {
         const { x, y } = gridToScreen(col, row);
-        const key = cell === 1 ? 'block' : (col + row) % 2 ? 'floorA' : 'floorB';
-        // Blocks are drawn raised: their top face starts BLOCK_H above the floor
-        const img = this.add.image(x, cell === 1 ? y - BLOCK_H : y, key).setOrigin(0.5, 0);
-        img.depth = col + row + (cell === 1 ? 0.5 : 0);
-        this.world.add(img);
+        const { ground, object } = symbolAt(col, row);
+        // Ground and island edges lie under everything; objects share the characters' depth rule
+        const tile = (key, depth) => this.world.add(this.add.image(x, y, key).setOrigin(0.5, 0).setDepth(depth));
+        tile(GROUND_VARIANTS[ground] ? `${ground}${tileVariant(col, row, GROUND_VARIANTS[ground])}` : ground, -1);
+        if (row === last) tile('edgeLeft', -2);
+        if (col === last) tile('edgeRight', -2);
+        if (object) {
+          const kinds = OBJECT_VARIANTS[object] ?? [object];
+          const img = this.add.image(x, y + TILE_H, kinds[tileVariant(col, row, kinds.length)]).setOrigin(0.5, 1);
+          this.world.add(img.setDepth(col + row + 0.5));
+        }
       }),
     );
   }
@@ -420,7 +430,7 @@ class IsoScene extends Phaser.Scene {
     const { x, y } = gridToScreen(walker.pos.col, walker.pos.row);
     walker.sprite.setPosition(x, y + FOOT_OFFSET);
     walker.label.setPosition(x, y + FOOT_OFFSET + 1);
-    // Same depth rule as tiles, slightly above the floor and blocks of its own cell
+    // Same depth rule as objects, slightly above the object of its own cell
     walker.sprite.depth = depthSum + 0.6;
     this.world.sort('depth');
   }
@@ -428,8 +438,8 @@ class IsoScene extends Phaser.Scene {
 
 new Phaser.Game({
   type: Phaser.AUTO,
-  width: 960,
-  height: 640,
+  width: 1200,
+  height: 720,
   backgroundColor: '#1b1d26',
   parent: 'game',
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },

@@ -6,6 +6,11 @@ from pydantic_ai.models import Model
 
 
 def build_model() -> Model:
+    if settings.LLM_PROVIDER == 'fake':
+        from .fake_llm import build_fake_model
+
+        return build_fake_model()
+
     if not settings.LLM_API_KEY:
         raise ImproperlyConfigured('LLM_API_KEY is not set (see backend/.env.example).')
 
@@ -28,4 +33,4 @@ def build_model() -> Model:
             settings.LLM_MODEL, provider=AnthropicProvider(api_key=settings.LLM_API_KEY), settings=model_settings
         )
 
-    raise ImproperlyConfigured(f'Unknown LLM_PROVIDER {settings.LLM_PROVIDER!r} (expected openai or anthropic).')
+    raise ImproperlyConfigured(f'Unknown LLM_PROVIDER {settings.LLM_PROVIDER!r} (expected openai, anthropic or fake).')

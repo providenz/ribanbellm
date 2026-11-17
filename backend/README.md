@@ -12,6 +12,8 @@ uv run python manage.py migrate
 uv run python manage.py seed_characters
 ```
 
+To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-in model returns random canned French dialogue after a short delay (0.8 to 2.5 s), with no API key needed. Memories and relationship scores are still updated as with a real model.
+
 ## Make two characters talk
 
 ```sh

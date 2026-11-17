@@ -52,7 +52,7 @@ class IsoScene extends Phaser.Scene {
     this.chat = new ChatLog(document.getElementById('chat-list'));
 
     this.status = this.add.text(12, 12, 'Chargement...', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#c8ccd8',
+      fontFamily: 'monospace', fontSize: '18px', color: '#c8ccd8',
     });
 
     const slider = document.getElementById('population');
@@ -126,7 +126,7 @@ class IsoScene extends Phaser.Scene {
     makeCharacterTextures(this, character);
     const sprite = this.add.image(0, 0, characterKey(character.id, 'neutral')).setOrigin(0.5, 1);
     const label = this.add
-      .text(0, 0, character.name, { fontFamily: 'sans-serif', fontSize: '11px', color: '#ffffff' })
+      .text(0, 0, character.name, { fontFamily: 'sans-serif', fontSize: '15px', color: '#ffffff' })
       .setOrigin(0.5, 0)
       .setStroke('#1b1d26', 3);
     this.world.add(sprite);
@@ -424,7 +424,7 @@ class IsoScene extends Phaser.Scene {
     const pad = 6;
     const tail = 6;
     const label = this.add
-      .text(0, 0, text, { fontFamily: 'sans-serif', fontSize: '12px', color: '#1b1d26', wordWrap: { width: 170 } })
+      .text(0, 0, text, { fontFamily: 'sans-serif', fontSize: '16px', color: '#1b1d26', wordWrap: { width: 230 } })
       .setOrigin(0.5, 1);
     const w = label.width + pad * 2;
     const h = label.height + pad * 2;

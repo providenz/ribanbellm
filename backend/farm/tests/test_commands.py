@@ -5,7 +5,7 @@ from django.core.management import CommandError, call_command
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from farm.models import Character, Conversation
+from farm.models import Character, Conversation, Feeling, Memory
 
 pytestmark = pytest.mark.django_db
 
@@ -96,3 +96,32 @@ def test_usage_totals_per_model():
     lines = out.getvalue().splitlines()
     assert any('claude-opus-5-5' in l and '2' in l and '300' in l and '120' in l and '$0.0300' in l for l in lines)
     assert any('mistral-medium-2508' in l and 'inconnu' in l for l in lines)
+
+
+@pytest.fixture
+def lived_in_farm():
+    call_command('seed_characters', stdout=StringIO())
+    a, b = Character.objects.all()[:2]
+    Feeling.of(a, b).apply_delta(3)
+    Memory.objects.create(owner=a, about=b, text='Il me doit une cuillère.')
+    Conversation.objects.create(a=a, b=b, lines=[])
+    return Character.objects.count()
+
+
+def test_reset_farm_clears_content_and_keeps_characters(lived_in_farm):
+    out = StringIO()
+    call_command('reset_farm', '--yes', stdout=out)
+
+    assert Conversation.objects.count() == 0
+    assert Memory.objects.count() == 0
+    assert Feeling.objects.count() == 0
+    assert Character.objects.count() == lived_in_farm
+    assert '1 conversation' in out.getvalue()
+
+
+def test_reset_farm_does_nothing_unless_confirmed(lived_in_farm, monkeypatch):
+    monkeypatch.setattr('builtins.input', lambda _: 'n')
+    call_command('reset_farm', stdout=StringIO())
+
+    assert Conversation.objects.count() == 1
+    assert Memory.objects.count() == 1

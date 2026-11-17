@@ -3,8 +3,8 @@ import random
 import pytest
 
 from farm import fake_llm
-from farm.director import run_conversation
-from farm.models import Character, Memory
+from farm import director
+from farm.models import Character, Conversation, Memory
 
 pytestmark = pytest.mark.django_db
 
@@ -14,11 +14,12 @@ def no_delay(monkeypatch):
     monkeypatch.setattr(fake_llm, 'DELAY_SECONDS', (0, 0))
 
 
-def test_fake_model_runs_the_real_pipeline():
+def test_fake_model_drives_the_director_engine():
     a = Character.objects.create(name='Grillon', personality='p', speech_quirk='q')
     b = Character.objects.create(name='Gérard', personality='p', speech_quirk='q')
 
-    conversation = run_conversation(a, b, model=fake_llm.build_fake_model(random.Random(1)))
+    events = list(director.run(a, b, model=fake_llm.build_fake_model(random.Random(1))))
+    conversation = Conversation.objects.get(pk=events[-1]['conversation_id'])
 
     assert 4 <= len(conversation.lines) <= 6
     assert [line['speaker'] for line in conversation.lines[:2]] == ['Grillon', 'Gérard']

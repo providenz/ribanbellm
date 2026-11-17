@@ -1,16 +1,15 @@
 """The conversation director: one LLM call writes a whole exchange between two characters."""
 
+from collections.abc import Iterator
 from typing import Literal
 
-from django.db import transaction
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import Model
 
-from .common import TONE_RULES, LenientEmotion, MemoryNote, ShortText, cost_of, feeling_label, resolve_about
-from .llm import build_model
-from .models import Character, Conversation, Feeling, Memory
+from .common import TONE_RULES, LenientEmotion, MemoryNote, ShortText, Usage, feeling_label
+from .conversations import Outcome, end_event, error_event, line_event, record, thinking_event
+from .models import Character, Feeling, Memory
 
 
 class Line(BaseModel):
@@ -79,34 +78,22 @@ def build_prompt(a: Character, b: Character) -> str:
     )
 
 
-def run_conversation(a: Character, b: Character, *, model: Model | None = None) -> Conversation:
-    if a.pk == b.pk:
-        raise ValueError('A character cannot talk to itself.')
-
-    run = director.run_sync(build_prompt(a, b), model=model or build_model())
+def run(a: Character, b: Character, *, model: Model) -> Iterator[dict]:
+    """Director engine: one call writes the whole scene, then its lines are replayed as events."""
+    yield thinking_event(a)
+    usage = Usage()
+    try:
+        run = director.run_sync(build_prompt(a, b), model=model)
+    except Exception as exc:  # any model failure ends the stream cleanly
+        record(a, b, lines=[], usage=usage, engine='director', outcome=None)
+        yield error_event(str(exc))
+        return
+    usage.add(run)
     result = run.output
-    usage = run.usage
-    responses = [m for m in run.new_messages() if isinstance(m, ModelResponse)]
-    names = {'A': a.name, 'B': b.name}
-
-    with transaction.atomic():
-        a_to_b, b_to_a = Feeling.of(a, b), Feeling.of(b, a)
-        a_before, b_before = a_to_b.score, b_to_a.score
-        a_to_b.apply_delta(result.score_delta)
-        b_to_a.apply_delta(result.score_delta)
-        Memory.remember(owner=a, text=result.memory_a.text, about=resolve_about(result.memory_a, b, a, b))
-        Memory.remember(owner=b, text=result.memory_b.text, about=resolve_about(result.memory_b, a, a, b))
-        return Conversation.objects.create(
-            a=a,
-            b=b,
-            lines=[{**line.model_dump(), 'speaker': names[line.speaker]} for line in result.lines],
-            feeling_a_before=a_before,
-            feeling_a_after=a_to_b.score,
-            feeling_b_before=b_before,
-            feeling_b_after=b_to_a.score,
-            engine='director',
-            model_name=responses[-1].model_name or '',
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            cost_usd=cost_of(responses),
-        )
+    speakers = {'A': a, 'B': b}
+    lines = [{**line.model_dump(), 'speaker': speakers[line.speaker].name} for line in result.lines]
+    for line, raw in zip(lines, result.lines):
+        yield thinking_event(speakers[raw.speaker])
+        yield line_event(line)
+    outcome = Outcome(result.memory_a, result.memory_b, result.score_delta, result.score_delta)
+    yield end_event(record(a, b, lines=lines, usage=usage, engine='director', outcome=outcome))

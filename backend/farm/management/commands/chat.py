@@ -2,8 +2,8 @@ import random
 
 from django.core.management.base import BaseCommand, CommandError
 
-from farm import director
-from farm.models import Character
+from farm import conversations
+from farm.models import Character, Conversation
 
 
 class Command(BaseCommand):
@@ -16,11 +16,15 @@ class Command(BaseCommand):
         a, b = self._pick(names)
         self.stdout.write(self.style.MIGRATE_HEADING(f'{a.name} croise {b.name}...\n'))
 
-        conversation = director.run_conversation(a, b, model=director.build_model())
+        for event in conversations.stream(a, b):
+            if event['type'] == 'line':
+                self.stdout.write(f"{self.style.SUCCESS(event['speaker'])}: {event['text']}  ({event['emotion']})")
+            elif event['type'] == 'error':
+                self.stdout.write(self.style.ERROR(f"Conversation interrompue: {event['message']}"))
+            elif event['type'] == 'end':
+                self._summary(a, b, Conversation.objects.get(pk=event['conversation_id']))
 
-        for line in conversation.lines:
-            self.stdout.write(f"{self.style.SUCCESS(line['speaker'])}: {line['text']}  ({line['emotion']})")
-
+    def _summary(self, a: Character, b: Character, conversation: Conversation) -> None:
         self.stdout.write('')
         for character in (a, b):
             self.stdout.write(f'{character.name} retient: {character.memories.first().text}')
@@ -29,7 +33,7 @@ class Command(BaseCommand):
         cost = 'coût inconnu' if conversation.cost_usd is None else f'coût ${conversation.cost_usd:.4f}'
         self.stdout.write(
             f'Tokens: {conversation.input_tokens} in / {conversation.output_tokens} out'
-            f' ({conversation.model_name}, {cost})'
+            f' ({conversation.engine}, {conversation.model_name}, {cost})'
         )
 
     def _pick(self, names: list[str]) -> tuple[Character, Character]:

@@ -27,8 +27,9 @@ def fake_model() -> FunctionModel:
 
 
 @pytest.fixture
-def no_llm(monkeypatch):
-    monkeypatch.setattr('farm.director.build_model', fake_model)
+def no_llm(monkeypatch, settings):
+    settings.CONVERSATION_ENGINE = 'director'
+    monkeypatch.setattr('farm.conversations.build_model', fake_model)
 
 
 def test_seed_characters_is_idempotent():

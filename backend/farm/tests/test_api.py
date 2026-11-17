@@ -51,21 +51,25 @@ def test_list_characters_returns_active_ones_in_stable_order(client, cast):
     ]
 
 
-def test_create_conversation(client, cast, monkeypatch):
-    monkeypatch.setattr('farm.director.build_model', lambda: model_returning(VALID_OUTPUT))
+def events_of(response) -> tuple[str, list[dict]]:
+    raw = b''.join(response.streaming_content).decode()
+    return raw, [json.loads(line) for line in raw.splitlines()]
+
+
+def test_create_conversation_streams_ndjson_events(client, cast, monkeypatch, settings):
+    settings.CONVERSATION_ENGINE = 'director'
+    monkeypatch.setattr('farm.conversations.build_model', lambda: model_returning(VALID_OUTPUT))
     gerard, grillon, _ = cast
 
     response = post_conversation(client, gerard.id, grillon.id)
 
     assert response.status_code == 200
-    body = response.json()
-    assert body['lines'] == [
-        {'speaker': 'Gérard', 'text': 'Salut.', 'emotion': 'happy'},
-        {'speaker': 'Grillon', 'text': 'Bof.', 'emotion': 'neutral'},
-    ]
-    assert (body['feeling_a_before'], body['feeling_a_after']) == (0, 1)
-    assert (body['feeling_b_before'], body['feeling_b_after']) == (0, 1)
-    assert body['id'] == Conversation.objects.get().id
+    assert response['Content-Type'] == 'application/x-ndjson'
+    raw, events = events_of(response)
+    assert 'Gérard' in raw  # accents are not escaped
+    assert [e['type'] for e in events] == ['thinking', 'thinking', 'line', 'thinking', 'line', 'end']
+    assert events[2] == {'type': 'line', 'speaker': 'Gérard', 'text': 'Salut.', 'emotion': 'happy'}
+    assert events[-1]['conversation_id'] == Conversation.objects.get().id
 
 
 def test_create_conversation_with_unknown_or_inactive_character_is_404(client, cast):
@@ -79,12 +83,24 @@ def test_create_conversation_with_same_character_is_400(client, cast):
     assert post_conversation(client, cast[0].id, cast[0].id).status_code == 400
 
 
-def test_llm_failure_is_502_and_persists_nothing(client, cast, monkeypatch):
+def test_llm_failure_ends_the_stream_with_an_error_event(client, cast, monkeypatch, settings):
+    settings.CONVERSATION_ENGINE = 'director'
     invalid = {**VALID_OUTPUT, 'score_delta': 99}  # out of range on every attempt
-    monkeypatch.setattr('farm.director.build_model', lambda: model_returning(invalid))
+    monkeypatch.setattr('farm.conversations.build_model', lambda: model_returning(invalid))
 
     response = post_conversation(client, cast[0].id, cast[1].id)
 
-    assert response.status_code == 502
-    assert 'detail' in response.json()
-    assert Conversation.objects.count() == 0
+    assert response.status_code == 200
+    _, events = events_of(response)
+    assert events[-1]['type'] == 'error'
+    assert Conversation.objects.get().interrupted
+
+
+def test_missing_api_key_is_500_before_streaming(client, cast, settings):
+    settings.LLM_PROVIDER = 'anthropic'
+    settings.LLM_API_KEY = ''
+
+    response = post_conversation(client, cast[0].id, cast[1].id)
+
+    assert response.status_code == 500
+    assert 'LLM_API_KEY' in response.json()['detail']

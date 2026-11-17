@@ -2,10 +2,16 @@ import pytest
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from farm.director import build_prompt, run_conversation
+from farm.director import build_prompt, run
 from farm.models import Character, Conversation, Feeling, Memory
 
 pytestmark = pytest.mark.django_db
+
+
+def run_conversation(a, b, *, model):
+    """Run the director engine to the end and return the saved conversation."""
+    events = list(run(a, b, model=model))
+    return Conversation.objects.get(pk=events[-1]['conversation_id'])
 
 
 @pytest.fixture
@@ -95,23 +101,6 @@ def test_memory_about_unknown_name_falls_back_to_partner(pigeon, diva):
     assert Memory.latest_for(pigeon).get().about == diva
 
 
-def test_model_failure_persists_nothing(pigeon, diva):
-    def broken(messages, info):
-        raise RuntimeError('LLM down')
-
-    with pytest.raises(RuntimeError):
-        run_conversation(pigeon, diva, model=FunctionModel(broken))
-
-    assert Conversation.objects.count() == 0
-    assert Memory.objects.count() == 0
-    assert not Feeling.objects.exclude(score=0).exists()
-
-
-def test_cannot_talk_to_oneself(pigeon):
-    with pytest.raises(ValueError):
-        run_conversation(pigeon, pigeon, model=answering(result_args()))
-
-
 def test_run_conversation_records_token_usage(pigeon, diva):
     conversation = run_conversation(pigeon, diva, model=answering(result_args()))
 
@@ -127,7 +116,7 @@ def test_cost_of_known_and_unknown_models():
     from pydantic_ai.messages import ModelResponse, TextPart
     from pydantic_ai.usage import RequestUsage
 
-    from farm.director import cost_of
+    from farm.common import cost_of
 
     def response(model_name, provider_name):
         return ModelResponse(

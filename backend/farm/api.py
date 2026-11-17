@@ -4,6 +4,7 @@ from ninja.errors import HttpError
 from pydantic_ai.exceptions import AgentRunError
 
 from . import director
+from .common import Emotion
 from .models import Character
 
 api = NinjaAPI(title='Ant farm')
@@ -24,14 +25,16 @@ class ConversationIn(Schema):
 class LineOut(Schema):
     speaker: str
     text: str
-    emotion: director.Emotion
+    emotion: Emotion
 
 
 class ConversationOut(Schema):
     id: int
     lines: list[LineOut]
-    score_before: int
-    score_after: int
+    feeling_a_before: int
+    feeling_a_after: int
+    feeling_b_before: int
+    feeling_b_after: int
 
 
 @api.get('/characters', response=list[CharacterOut])

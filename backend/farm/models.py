@@ -25,30 +25,29 @@ class Character(models.Model):
         return self.name
 
 
-class Relationship(models.Model):
-    """Symmetric relationship between two characters, stored once with a.id < b.id."""
+class Feeling(models.Model):
+    """What `owner` feels toward `toward`. One-sided: A can be fond of B while B is lukewarm."""
 
     MIN_SCORE = -10
     MAX_SCORE = 10
 
-    a = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='+')
-    b = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='+')
+    owner = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='feelings')
+    toward = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='+')
     score = models.SmallIntegerField(default=0)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['a', 'b'], name='unique_pair'),
-            models.CheckConstraint(condition=models.Q(a__lt=models.F('b')), name='ordered_pair'),
+            models.UniqueConstraint(fields=['owner', 'toward'], name='unique_feeling'),
+            models.CheckConstraint(condition=~models.Q(owner=models.F('toward')), name='feeling_not_self'),
         ]
 
     def __str__(self):
-        return f'{self.a} / {self.b}: {self.score}'
+        return f'{self.owner} -> {self.toward}: {self.score}'
 
     @classmethod
-    def between(cls, x: Character, y: Character) -> 'Relationship':
-        a, b = sorted((x, y), key=lambda c: c.pk)
-        rel, _ = cls.objects.get_or_create(a=a, b=b)
-        return rel
+    def of(cls, owner: Character, toward: Character) -> 'Feeling':
+        feeling, _ = cls.objects.get_or_create(owner=owner, toward=toward)
+        return feeling
 
     def apply_delta(self, delta: int) -> None:
         self.score = max(self.MIN_SCORE, min(self.MAX_SCORE, self.score + delta))
@@ -89,8 +88,13 @@ class Conversation(models.Model):
     a = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='+')
     b = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='+')
     lines = models.JSONField()
-    score_before = models.SmallIntegerField()
-    score_after = models.SmallIntegerField()
+    # a's feeling toward b, and b's toward a, before and after the conversation
+    feeling_a_before = models.SmallIntegerField(default=0)
+    feeling_a_after = models.SmallIntegerField(default=0)
+    feeling_b_before = models.SmallIntegerField(default=0)
+    feeling_b_after = models.SmallIntegerField(default=0)
+    interrupted = models.BooleanField(default=False, help_text='Stopped by an LLM error: no memories or feelings applied.')
+    engine = models.CharField(max_length=10, default='director')
     model_name = models.CharField(max_length=100, blank=True)
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)

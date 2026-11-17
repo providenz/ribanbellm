@@ -24,7 +24,8 @@ class Command(BaseCommand):
         self.stdout.write('')
         for character in (a, b):
             self.stdout.write(f'{character.name} retient: {character.memories.first().text}')
-        self.stdout.write(f'Relation: {conversation.score_before} -> {conversation.score_after}')
+        self.stdout.write(f'{a.name} -> {b.name}: {conversation.feeling_a_before} -> {conversation.feeling_a_after}')
+        self.stdout.write(f'{b.name} -> {a.name}: {conversation.feeling_b_before} -> {conversation.feeling_b_after}')
         cost = 'coût inconnu' if conversation.cost_usd is None else f'coût ${conversation.cost_usd:.4f}'
         self.stdout.write(
             f'Tokens: {conversation.input_tokens} in / {conversation.output_tokens} out'

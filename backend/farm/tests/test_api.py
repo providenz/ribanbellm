@@ -63,8 +63,8 @@ def test_create_conversation(client, cast, monkeypatch):
         {'speaker': 'Gérard', 'text': 'Salut.', 'emotion': 'happy'},
         {'speaker': 'Grillon', 'text': 'Bof.', 'emotion': 'neutral'},
     ]
-    assert body['score_before'] == 0
-    assert body['score_after'] == 1
+    assert (body['feeling_a_before'], body['feeling_a_after']) == (0, 1)
+    assert (body['feeling_b_before'], body['feeling_b_after']) == (0, 1)
     assert body['id'] == Conversation.objects.get().id
 
 

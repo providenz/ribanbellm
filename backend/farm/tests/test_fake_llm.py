@@ -25,7 +25,7 @@ def test_fake_model_runs_the_real_pipeline():
     assert 'Gérard' in conversation.lines[0]['text']
     assert conversation.model_name == 'fake'
     assert Memory.objects.get(owner=a).about == b
-    assert abs(conversation.score_after - conversation.score_before) <= 3
+    assert abs(conversation.feeling_a_after - conversation.feeling_a_before) <= 2
 
 
 def test_fake_provider_needs_no_key(settings):

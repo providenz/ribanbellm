@@ -3,7 +3,7 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from farm.director import build_prompt, run_conversation
-from farm.models import Character, Conversation, Memory, Relationship
+from farm.models import Character, Conversation, Feeling, Memory
 
 pytestmark = pytest.mark.django_db
 
@@ -37,7 +37,7 @@ def result_args(**overrides) -> dict:
             {'speaker': 'A', 'text': 'Le hibou chante à minuit.', 'emotion': 'smug'},
             {'speaker': 'B', 'text': 'Moi aussi, je chante! Laaa!', 'emotion': 'happy'},
             {'speaker': 'A', 'text': 'Couverture grillée...', 'emotion': 'scared'},
-            {'speaker': 'B', 'text': 'Quel public ingrat.', 'emotion': 'angry'},
+            {'speaker': 'B', 'text': 'Quel public ingrat.', 'emotion': 'annoyed'},
         ],
         'memory_a': {'text': 'Vibrato a failli griller ma couverture.'},
         'memory_b': {'text': 'Ce pigeon ne connaît rien à l\'opéra.'},
@@ -47,17 +47,18 @@ def result_args(**overrides) -> dict:
     return args
 
 
-def test_build_prompt_includes_characters_memories_and_relationship(pigeon, diva):
+def test_build_prompt_includes_characters_memories_and_both_feelings(pigeon, diva):
     Memory.remember(owner=pigeon, about=diva, text='Vibrato m\'a volé mon pain.')
-    Relationship.between(pigeon, diva).apply_delta(-8)
+    Feeling.of(pigeon, diva).apply_delta(-8)
+    Feeling.of(diva, pigeon).apply_delta(5)
 
     prompt = build_prompt(pigeon, diva)
 
     assert 'Agent Roucoule' in prompt and 'Madame Vibrato' in prompt
     assert 'Pigeon persuadé' in prompt and 'Chante tout' in prompt
     assert 'Vibrato m\'a volé mon pain.' in prompt
-    assert '-8' in prompt
-    assert 'ennemis' in prompt
+    assert "Ce que A ressent pour B: pas vraiment sur la même longueur d'onde (-8" in prompt
+    assert 'Ce que B ressent pour A: bon copain (5' in prompt
 
 
 def test_run_conversation_persists_log_memories_and_score(pigeon, diva):
@@ -65,9 +66,11 @@ def test_run_conversation_persists_log_memories_and_score(pigeon, diva):
 
     assert Conversation.objects.count() == 1
     assert conversation.lines[0] == {'speaker': 'Agent Roucoule', 'text': 'Le hibou chante à minuit.', 'emotion': 'smug'}
-    assert conversation.score_before == 0
-    assert conversation.score_after == -2
-    assert Relationship.between(pigeon, diva).score == -2
+    assert (conversation.feeling_a_before, conversation.feeling_a_after) == (0, -2)
+    assert (conversation.feeling_b_before, conversation.feeling_b_after) == (0, -2)
+    assert Feeling.of(pigeon, diva).score == -2
+    assert Feeling.of(diva, pigeon).score == -2
+    assert conversation.engine == 'director'
 
     pigeon_memory = Memory.latest_for(pigeon).get()
     assert pigeon_memory.text == 'Vibrato a failli griller ma couverture.'
@@ -101,7 +104,7 @@ def test_model_failure_persists_nothing(pigeon, diva):
 
     assert Conversation.objects.count() == 0
     assert Memory.objects.count() == 0
-    assert not Relationship.objects.exclude(score=0).exists()
+    assert not Feeling.objects.exclude(score=0).exists()
 
 
 def test_cannot_talk_to_oneself(pigeon):

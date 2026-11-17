@@ -15,7 +15,7 @@ def fake_model() -> FunctionModel:
         args = {
             'lines': [
                 {'speaker': 'A', 'text': 'Bonjour, ennemi.', 'emotion': 'smug'},
-                {'speaker': 'B', 'text': 'Bonjour, pire ennemi.', 'emotion': 'angry'},
+                {'speaker': 'B', 'text': 'Bonjour, pire ennemi.', 'emotion': 'annoyed'},
             ],
             'memory_a': {'text': 'Il m\'a appelé ennemi.'},
             'memory_b': {'text': 'Il a commencé.'},
@@ -50,7 +50,8 @@ def test_chat_prints_dialogue_and_persists(no_llm):
     output = out.getvalue()
     assert f'{a.name}: Bonjour, ennemi.' in output
     assert f'{b.name}: Bonjour, pire ennemi.' in output
-    assert '0 -> -1' in output
+    assert f'{a.name} -> {b.name}: 0 -> -1' in output
+    assert f'{b.name} -> {a.name}: 0 -> -1' in output
     assert Conversation.objects.count() == 1
 
 
@@ -83,7 +84,7 @@ def test_usage_totals_per_model():
 
     call_command('seed_characters', stdout=StringIO())
     a, b = Character.objects.all()[:2]
-    common = dict(a=a, b=b, lines=[], score_before=0, score_after=0)
+    common = dict(a=a, b=b, lines=[])
     Conversation.objects.create(**common, model_name='claude-opus-5-5', input_tokens=100, output_tokens=50, cost_usd=Decimal('0.01'))
     Conversation.objects.create(**common, model_name='claude-opus-5-5', input_tokens=200, output_tokens=70, cost_usd=Decimal('0.02'))
     Conversation.objects.create(**common, model_name='mistral-medium-2508', input_tokens=10, output_tokens=5, cost_usd=None)

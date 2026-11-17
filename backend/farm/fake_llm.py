@@ -1,6 +1,6 @@
 """A free stand-in for the LLM (LLM_PROVIDER=fake): random canned French dialogue, no API call.
 
-It goes through the real director pipeline (structured output, memories, relationship score),
+It goes through the real director pipeline (structured output, memories, feelings),
 so everything downstream behaves as with a real model.
 """
 
@@ -21,13 +21,13 @@ OPENERS = [
     ('Ah. {other}. Bonjour, je suppose.', 'neutral'),
 ]
 REPLIES = [
-    ('Tu as encore marché sur mes plates-bandes.', 'angry'),
+    ('Tu as encore marché sur mes plates-bandes, coquin.', 'annoyed'),
     ('Je n\'ai rien fait, je le jure sur ma moustache imaginaire.', 'scared'),
     ('C\'est exactement ce que dirait un espion.', 'smug'),
     ('J\'ai perdu mon chapeau, l\'as-tu vu?', 'sad'),
     ('Quelle coïncidence, moi aussi j\'adore le fromage!', 'happy'),
     ('Pardon? Je n\'ai rien compris, mais j\'approuve.', 'surprised'),
-    ('On en reparlera quand tu m\'auras rendu ma cuillère.', 'angry'),
+    ('On en reparlera quand tu m\'auras rendu ma cuillère.', 'annoyed'),
     ('Chut! Les murs ont des oreilles.', 'scared'),
 ]
 CLOSERS = [
@@ -40,7 +40,7 @@ MEMORIES = [
     '{other} m\'a parlé d\'une cuillère disparue.',
     '{other} cache sûrement quelque chose.',
     '{other} est plus drôle que je ne pensais.',
-    '{other} m\'a encore vexé, je m\'en souviendrai.',
+    '{other} m\'a taquiné, je lui rendrai la pareille.',
 ]
 
 
@@ -64,7 +64,7 @@ def fake_conversation(prompt: str, rng: random.Random) -> dict:
         'lines': lines,
         'memory_a': {'text': rng.choice(MEMORIES).format(other=b)},
         'memory_b': {'text': rng.choice(MEMORIES).format(other=a)},
-        'score_delta': rng.randint(-3, 3),
+        'score_delta': rng.randint(-2, 2),
     }
 
 

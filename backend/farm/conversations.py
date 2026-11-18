@@ -68,8 +68,8 @@ def record(
 def interrupted(a: Character, b: Character, *, lines: list[dict], usage: Usage, engine: str, exc: Exception) -> dict:
     """Log the failure, save what was said with no consequences, and return the error event."""
     logger.exception('%s conversation between %s and %s failed', engine, a.name, b.name)
-    record(a, b, lines=lines, usage=usage, engine=engine, outcome=None, error=str(exc))
-    return error_event(str(exc))
+    conversation = record(a, b, lines=lines, usage=usage, engine=engine, outcome=None, error=str(exc))
+    return error_event(str(exc), conversation)
 
 
 def thinking_event(speaker: Character) -> dict:
@@ -80,6 +80,16 @@ def line_event(line: dict) -> dict:
     return {'type': 'line', **line}
 
 
+def usage_of(conversation: Conversation) -> dict:
+    """Tokens and USD cost of one conversation (cost None when the model has no known price)."""
+    cost = conversation.cost_usd
+    return {
+        'input_tokens': conversation.input_tokens,
+        'output_tokens': conversation.output_tokens,
+        'cost_usd': None if cost is None else float(cost),
+    }
+
+
 def end_event(conversation: Conversation) -> dict:
     return {
         'type': 'end',
@@ -88,11 +98,13 @@ def end_event(conversation: Conversation) -> dict:
             conversation.a.name: {'before': conversation.feeling_a_before, 'after': conversation.feeling_a_after},
             conversation.b.name: {'before': conversation.feeling_b_before, 'after': conversation.feeling_b_after},
         },
+        'usage': usage_of(conversation),
     }
 
 
-def error_event(message: str) -> dict:
-    return {'type': 'error', 'message': message}
+def error_event(message: str, conversation: Conversation) -> dict:
+    """The failure message, and what the calls made before it consumed."""
+    return {'type': 'error', 'message': message, 'usage': usage_of(conversation)}
 
 
 def stream(a: Character, b: Character, *, model: Model | None = None) -> Iterator[dict]:

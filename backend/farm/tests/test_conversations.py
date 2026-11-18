@@ -45,6 +45,13 @@ def test_director_stream_events(pair):
     end = events[-1]
     assert end['conversation_id'] == Conversation.objects.get().id
     assert end['feelings'] == {'Gérard': {'before': 0, 'after': 1}, 'Grillon': {'before': 0, 'after': 1}}
+    conversation = Conversation.objects.get()
+    assert end['usage'] == {
+        'input_tokens': conversation.input_tokens,
+        'output_tokens': conversation.output_tokens,
+        'cost_usd': None if conversation.cost_usd is None else float(conversation.cost_usd),
+    }
+    assert end['usage']['input_tokens'] > 0
 
 
 def test_director_failure_records_interrupted_conversation(pair):
@@ -64,7 +71,8 @@ def test_unexpected_model_exception_ends_with_error_event(pair):
 
     events = list(stream(*pair, model=FunctionModel(broken)))
 
-    assert events[-1] == {'type': 'error', 'message': 'LLM down'}
+    assert events[-1]['type'] == 'error' and events[-1]['message'] == 'LLM down'
+    assert events[-1]['usage'] == {'input_tokens': 0, 'output_tokens': 0, 'cost_usd': 0.0}
     assert Conversation.objects.get().interrupted
 
 

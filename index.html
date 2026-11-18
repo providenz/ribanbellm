@@ -23,6 +23,9 @@
       .chat-name { font-weight: bold; }
       .chat-separator { margin-top: 8px; color: #8a8fa3; font-size: 13px; text-align: center; }
       .chat-note { color: #8a8fa3; font-style: italic; }
+      #usage { padding: 8px 14px; border-top: 1px solid #2a2d3a; font-size: 13px; color: #8a8fa3; }
+      #usage div { display: flex; gap: 8px; }
+      .usage-label { flex: none; width: 82px; color: #d6d9e3; font-weight: bold; }
       @media (max-width: 800px) {
         body { flex-direction: column; }
         #game { height: 60%; }
@@ -41,6 +44,10 @@
     <aside id="chat">
       <h2>Discussions en direct</h2>
       <ul id="chat-list"></ul>
+      <footer id="usage">
+        <div><span class="usage-label">Cette page</span><span id="usage-page"></span></div>
+        <div><span class="usage-label">Total</span><span id="usage-total">...</span></div>
+      </footer>
     </aside>
     <script type="module" src="/src/main.js"></script>
   </body>

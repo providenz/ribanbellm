@@ -8,6 +8,7 @@ import {
 } from './sprites.js';
 import { readEvents } from './stream.js';
 import { ChatLog, feelingNotes } from './chat.js';
+import { EMPTY_USAGE, addUsage, formatUsage } from './usage.js';
 
 const STEP_DELAY_MS = [1000, 3000]; // idle time between two steps
 const STEP_DURATION_MS = 600;
@@ -50,6 +51,9 @@ class IsoScene extends Phaser.Scene {
     this.time.addEvent({ delay: MEETING_CHECK_MS, loop: true, callback: () => this.checkMeetings() });
 
     this.chat = new ChatLog(document.getElementById('chat-list'));
+    this.pageUsage = EMPTY_USAGE;
+    this.showUsage('usage-page', this.pageUsage);
+    this.refreshTotalUsage();
 
     this.status = this.add.text(12, 12, 'Chargement...', {
       fontFamily: 'monospace', fontSize: '18px', color: '#c8ccd8',
@@ -317,9 +321,33 @@ class IsoScene extends Phaser.Scene {
     }
   }
 
+  countUsage(usage) {
+    this.pageUsage = addUsage(this.pageUsage, usage);
+    this.showUsage('usage-page', this.pageUsage);
+    this.refreshTotalUsage();
+  }
+
+  async refreshTotalUsage() {
+    try {
+      const response = await fetch('/api/usage');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.showUsage('usage-total', await response.json());
+    } catch {
+      document.getElementById('usage-total').textContent = 'indisponible';
+    }
+  }
+
+  showUsage(id, usage) {
+    const element = document.getElementById(id);
+    element.textContent = formatUsage(usage);
+    element.title = `${usage.input_tokens} tokens envoyés, ${usage.output_tokens} reçus`;
+  }
+
   // Fetch the conversation and queue its events as they arrive.
   async listen(a, b, convo) {
     const push = (event) => {
+      // Counted on arrival: the backend has saved it, even if this pair is removed before playback
+      if (event.usage) this.countUsage(event.usage);
       convo.queue.push(event);
       convo.wake?.();
     };

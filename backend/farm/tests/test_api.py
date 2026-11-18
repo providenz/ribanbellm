@@ -104,3 +104,22 @@ def test_missing_api_key_is_500_before_streaming(client, cast, settings):
 
     assert response.status_code == 500
     assert 'LLM_API_KEY' in response.json()['detail']
+
+
+def test_usage_totals_every_conversation(client, cast):
+    a, b = cast[0], cast[1]
+    Conversation.objects.create(a=a, b=b, lines=[], input_tokens=100, output_tokens=10, cost_usd='0.0125')
+    Conversation.objects.create(a=a, b=b, lines=[], input_tokens=50, output_tokens=5, cost_usd=None)
+
+    response = client.get('/api/usage')
+
+    assert response.status_code == 200
+    assert response.json() == {
+        'conversations': 2, 'input_tokens': 150, 'output_tokens': 15, 'cost_usd': 0.0125, 'unpriced': 1,
+    }
+
+
+def test_usage_with_no_conversation_yet(client):
+    assert client.get('/api/usage').json() == {
+        'conversations': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost_usd': None, 'unpriced': 0,
+    }

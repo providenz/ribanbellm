@@ -64,7 +64,8 @@ uv run python manage.py reset_farm         # asks for confirmation; --yes to ski
 `uv run python manage.py runserver` serves the API at `/api` (interactive docs at `/api/docs`). The Vite dev server proxies `/api` to it.
 
 - `GET /api/characters`: active characters (`id`, `name`, `color`, `accessory`).
-- `POST /api/conversations` with `{"a_id": 1, "b_id": 2}`: runs a conversation and streams NDJSON events, one JSON object per line: `{"type": "thinking", "speaker"}` and `{"type": "line", "speaker", "text", "emotion"}` pairs, then `{"type": "end", "conversation_id", "feelings": {name: {before, after}}}` or `{"type": "error", "message"}` (the lines said so far are saved, marked interrupted, with no memory or feeling change). 400 if both ids are the same, 404 if a character is unknown or inactive, 500 if the LLM is not configured.
+- `POST /api/conversations` with `{"a_id": 1, "b_id": 2}`: runs a conversation and streams NDJSON events, one JSON object per line: `{"type": "thinking", "speaker"}` and `{"type": "line", "speaker", "text", "emotion"}` pairs, then `{"type": "end", "conversation_id", "feelings": {name: {before, after}}, "usage"}` or `{"type": "error", "message", "usage"}`, where `usage` is `{input_tokens, output_tokens, cost_usd}` (`cost_usd` null when the model has no known price) (on error, the lines said so far are saved, marked interrupted, with no memory or feeling change). 400 if both ids are the same, 404 if a character is unknown or inactive, 500 if the LLM is not configured.
+- `GET /api/usage`: totals over every stored conversation: `conversations`, `input_tokens`, `output_tokens`, `cost_usd` (sum of the known costs, null if none is known) and `unpriced` (conversations with no known price). The game shows it at the bottom of the sidebar, next to what the open page has used.
 
 ## Token consumption and cost
 

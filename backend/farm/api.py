@@ -10,7 +10,7 @@ from ninja.errors import HttpError
 from . import conversations
 from .models import Character, Conversation
 
-api = NinjaAPI(title='Ant farm')
+api = NinjaAPI(title='RibambeLLM')
 
 
 class CharacterOut(Schema):

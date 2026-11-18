@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>isogame</title>
+    <title>RibambeLLM</title>
     <style>
       html, body { margin: 0; height: 100%; background: #1b1d26; overflow: hidden; }
       body { display: flex; }
@@ -17,7 +17,8 @@
         width: 320px; height: 100%; display: flex; flex-direction: column;
         background: #14151c; border-left: 1px solid #2a2d3a; font: 15px/1.45 sans-serif; color: #d6d9e3;
       }
-      #chat h2 { margin: 0; padding: 12px 14px; font-size: 16px; border-bottom: 1px solid #2a2d3a; }
+      #chat h1 { margin: 0; padding: 12px 14px 0; font-size: 20px; letter-spacing: 0.5px; color: #ffe36e; }
+      #chat h2 { margin: 0; padding: 2px 14px 10px; font-size: 14px; font-weight: normal; color: #8a8fa3; border-bottom: 1px solid #2a2d3a; }
       #chat-list { flex: 1; margin: 0; padding: 8px 14px; list-style: none; overflow-y: auto; }
       #chat-list li { padding: 3px 0; overflow-wrap: anywhere; }
       .chat-name { font-weight: bold; }
@@ -42,6 +43,7 @@
       </div>
     </main>
     <aside id="chat">
+      <h1>RibambeLLM</h1>
       <h2>Discussions en direct</h2>
       <ul id="chat-list"></ul>
       <footer id="usage">

@@ -1,4 +1,4 @@
-# isogame
+# RibambeLLM
 
 A small LLM "ant farm" in French. Quirky characters wander an isometric village, meet two by two and talk: each character is its own LLM agent, with its own personality, memories and feelings toward the others. Their conversations show up as speech bubbles on the map and in a live chat on the right, with the token consumption at the bottom.
 

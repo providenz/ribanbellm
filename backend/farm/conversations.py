@@ -74,8 +74,9 @@ def thinking_event(speaker: Character) -> dict:
     return {'type': 'thinking', 'speaker': speaker.name}
 
 
-def line_event(line: dict) -> dict:
-    return {'type': 'line', **line}
+def line_event(line: dict, usage: Usage) -> dict:
+    """One line, with the tokens the conversation has used so far (the `end` event has the final total)."""
+    return {'type': 'line', **line, 'usage': usage.as_event()}
 
 
 def usage_of(conversation: Conversation) -> dict:

@@ -15,6 +15,20 @@ describe('addUsage', () => {
     const total = addUsage(EMPTY_USAGE, { input_tokens: 100, output_tokens: 10, cost_usd: null });
     expect(total).toEqual({ conversations: 1, input_tokens: 100, output_tokens: 10, cost_usd: null, unpriced: 1 });
   });
+
+  it('adds only the growth of a running conversation, and counts it once', () => {
+    const first = { input_tokens: 100, output_tokens: 10, cost_usd: 0.01 };
+    const later = { input_tokens: 250, output_tokens: 30, cost_usd: 0.025 };
+    const total = addUsage(addUsage(EMPTY_USAGE, first), later, first);
+    expect(total).toEqual({ conversations: 1, input_tokens: 250, output_tokens: 30, cost_usd: 0.025, unpriced: 0 });
+  });
+
+  it('counts a running conversation without a price once', () => {
+    const first = { input_tokens: 100, output_tokens: 10, cost_usd: null };
+    const later = { input_tokens: 250, output_tokens: 30, cost_usd: null };
+    const total = addUsage(addUsage(EMPTY_USAGE, first), later, first);
+    expect(total).toEqual({ conversations: 1, input_tokens: 250, output_tokens: 30, cost_usd: null, unpriced: 1 });
+  });
 });
 
 describe('formatUsage', () => {

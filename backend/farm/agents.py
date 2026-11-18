@@ -214,7 +214,7 @@ def run(a: Character, b: Character, *, model: Model, rng: random.Random | None =
             text = result.output.text if ctx.quirk_now else strip_quirk(result.output.text, current.speech_quirk)
             line = {'speaker': current.name, 'text': text, 'emotion': result.output.emotion}
             lines.append(line)
-            yield line_event(line)
+            yield line_event(line, usage)
             if phase == 'goodbye_back':
                 break
             partner_left = phase == 'last' or (phase == 'free' and result.output.leave)

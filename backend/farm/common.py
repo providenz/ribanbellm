@@ -1,4 +1,4 @@
-"""Pieces shared by both conversation engines (director and character agents)."""
+"""Pieces shared by the character agents, the conversation layer and character generation."""
 
 from collections.abc import Iterable
 from dataclasses import dataclass

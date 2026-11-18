@@ -1,51 +1,32 @@
 import pytest
-from django.core.exceptions import ImproperlyConfigured
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from farm.agents import MIN_LINES
 from farm.conversations import stream
-from farm.models import Character, Conversation, Memory
+from farm.models import Character, Conversation
+from farm.tests.scripted import Scripted, reflection, turn
 
 pytestmark = pytest.mark.django_db
 
-VALID = {
-    'lines': [
-        {'speaker': 'A', 'text': 'Salut.', 'emotion': 'happy'},
-        {'speaker': 'B', 'text': 'Bof, déjà vu.', 'emotion': 'neutral'},
-    ],
-    'memory_a': {'text': 'Il a dit bof.'},
-    'memory_b': {'text': 'Il a dit salut.'},
-    'score_delta': 1,
-}
-
-
-def answering(args: dict) -> FunctionModel:
-    def respond(messages, info: AgentInfo) -> ModelResponse:
-        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])
-
-    return FunctionModel(respond)
-
 
 @pytest.fixture
-def pair(settings):
-    settings.CONVERSATION_ENGINE = 'director'
+def pair():
     return (
         Character.objects.create(name='Gérard', personality='Caillou.', speech_quirk='Bof.'),
         Character.objects.create(name='Grillon', personality='Grille-pain.', speech_quirk='Pourquoi?'),
     )
 
 
-def test_director_stream_events(pair):
-    events = list(stream(*pair, model=answering(VALID)))
+def test_stream_runs_the_character_agents(pair):
+    model = Scripted([turn('Salut.', leave=True)] * MIN_LINES, [reflection(1), reflection(1)])
 
-    assert [e['type'] for e in events] == ['thinking', 'thinking', 'line', 'thinking', 'line', 'end']
-    assert events[0] == {'type': 'thinking', 'speaker': 'Gérard'}
-    assert events[2] == {'type': 'line', 'speaker': 'Gérard', 'text': 'Salut.', 'emotion': 'happy'}
-    assert events[3] == {'type': 'thinking', 'speaker': 'Grillon'}
+    events = list(stream(*pair, model=model))
+
+    assert [e['type'] for e in events] == ['thinking', 'line'] * MIN_LINES + ['end']
     end = events[-1]
-    assert end['conversation_id'] == Conversation.objects.get().id
-    assert end['feelings'] == {'Gérard': {'before': 0, 'after': 1}, 'Grillon': {'before': 0, 'after': 1}}
     conversation = Conversation.objects.get()
+    assert end['conversation_id'] == conversation.id
+    assert conversation.engine == 'agents'
+    assert end['feelings'] == {'Gérard': {'before': 0, 'after': 1}, 'Grillon': {'before': 0, 'after': 1}}
     assert end['usage'] == {
         'input_tokens': conversation.input_tokens,
         'output_tokens': conversation.output_tokens,
@@ -54,22 +35,8 @@ def test_director_stream_events(pair):
     assert end['usage']['input_tokens'] > 0
 
 
-def test_director_failure_records_interrupted_conversation(pair):
-    events = list(stream(*pair, model=answering({**VALID, 'score_delta': 99})))
-
-    assert events[-1]['type'] == 'error'
-    conversation = Conversation.objects.get()
-    assert conversation.interrupted
-    assert conversation.lines == []
-    assert conversation.feeling_a_after == conversation.feeling_a_before
-    assert Memory.objects.count() == 0
-
-
-def test_unexpected_model_exception_ends_with_error_event(pair):
-    def broken(messages, info):
-        raise RuntimeError('LLM down')
-
-    events = list(stream(*pair, model=FunctionModel(broken)))
+def test_model_failure_ends_with_an_error_event(pair):
+    events = list(stream(*pair, model=Scripted([RuntimeError('LLM down')])))
 
     assert events[-1]['type'] == 'error' and events[-1]['message'] == 'LLM down'
     assert events[-1]['usage'] == {'input_tokens': 0, 'output_tokens': 0, 'cost_usd': 0.0}
@@ -77,30 +44,20 @@ def test_unexpected_model_exception_ends_with_error_event(pair):
 
 
 def test_failure_is_stored_and_logged(pair, caplog):
-    def broken(messages, info):
-        raise RuntimeError('LLM down')
-
-    list(stream(*pair, model=FunctionModel(broken)))
+    list(stream(*pair, model=Scripted([RuntimeError('LLM down')])))
 
     assert Conversation.objects.get().error == 'LLM down'
     assert 'LLM down' in caplog.text
 
 
 def test_abandoned_stream_saves_nothing(pair):
-    events = stream(*pair, model=answering(VALID))
+    events = stream(*pair, model=Scripted([turn()] * 20))
     next(events)
     events.close()
 
     assert Conversation.objects.count() == 0
 
 
-def test_unknown_engine_is_rejected(pair, settings):
-    settings.CONVERSATION_ENGINE = 'nope'
-
-    with pytest.raises(ImproperlyConfigured):
-        list(stream(*pair, model=answering(VALID)))
-
-
 def test_cannot_talk_to_oneself(pair):
     with pytest.raises(ValueError):
-        list(stream(pair[0], pair[0], model=answering(VALID)))
+        list(stream(pair[0], pair[0], model=Scripted([])))

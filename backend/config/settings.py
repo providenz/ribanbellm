@@ -133,9 +133,8 @@ MAILERS = {
 }
 
 
-# LLM used by the conversation director (see .env.example)
+# LLM used by the character agents (see .env.example)
 LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'openai')
 LLM_MODEL = os.environ.get('LLM_MODEL', 'mistral-medium-2508')
 LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'https://albert.api.etalab.gouv.fr/v1/')
 LLM_API_KEY = os.environ.get('LLM_API_KEY', '')
-CONVERSATION_ENGINE = os.environ.get('CONVERSATION_ENGINE', 'agents')  # agents | director

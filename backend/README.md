@@ -1,6 +1,6 @@
-# Backend
+# RibambeLLM backend
 
-Django app holding the characters, their memories and relationships, and the LLM "director" that writes their conversations.
+Django app holding the characters, their memories and feelings, and the LLM agents that speak for them.
 
 ## Setup
 
@@ -24,14 +24,13 @@ docker compose exec backend uv run --no-dev python manage.py chat
 
 Migrations and `seed_characters` run on each start. The database lives in the `db` volume (`docker compose down -v` resets it). Code changes need `docker compose up --build`.
 
-To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-in model returns random canned French dialogue after a short delay (0.8 to 2.5 s), with no API key needed. Memories and feelings are still updated as with a real model, with either engine.
+To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-in model returns random canned French dialogue after a short delay (0.8 to 2.5 s), with no API key needed. Memories and feelings are still updated as with a real model.
 
 ## How conversations are written
 
-Two engines, chosen with `CONVERSATION_ENGINE` in `.env`:
+Each character is its own agent. It only knows its own personality, memories and feeling toward the other, speaks in turns (4 to 8 lines: they greet each other, talk about a dreamy topic of the day, and whoever decides to leave says goodbye, answered by a goodbye), then reflects on what it remembers and how its feeling changed. Feelings are one-sided.
 
-- `agents` (default): each character is its own agent. It only knows its own personality, memories and feeling toward the other, speaks in turns (4 to 8 lines: they greet each other, talk, and whoever decides to leave says goodbye, answered by a goodbye), then reflects on what it remembers and how its feeling changed. Feelings are one-sided.
-- `director`: one call writes the whole scene for both characters.
+Older conversations may be marked `director` in the admin and in `usage`: they come from an earlier mode, since removed, where one call wrote the whole scene.
 
 `POST /api/conversations` streams the conversation as NDJSON events (`thinking`, `line`, then `end` or `error`), so the frontend can show each line as soon as it is written.
 

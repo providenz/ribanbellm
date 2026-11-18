@@ -1,6 +1,6 @@
 """A free stand-in for the LLM (LLM_PROVIDER=fake): random canned French dialogue, no API call.
 
-It answers both engines (director scenes, character agent turns and reflections) through the
+It answers the character agents (turns and reflections) and seed_characters --llm through the
 real pipeline (structured output, memories, feelings), so everything downstream behaves as
 with a real model.
 """
@@ -44,30 +44,6 @@ MEMORIES = [
     '{other} est plus drôle que je ne pensais.',
     '{other} m\'a taquiné, je lui rendrai la pareille.',
 ]
-
-
-def _names(prompt: str) -> tuple[str, str]:
-    a = re.search(r'^A = (.+)$', prompt, re.MULTILINE)
-    b = re.search(r'^B = (.+)$', prompt, re.MULTILINE)
-    return (a.group(1) if a else 'toi', b.group(1) if b else 'toi')
-
-
-def fake_conversation(prompt: str, rng: random.Random) -> dict:
-    """Arguments for ConversationResult: 4 to 6 alternating lines, A speaks first."""
-    a, b = _names(prompt)
-    count = rng.randint(4, 6)
-    middle = rng.sample(REPLIES, count - 2)
-    picks = [rng.choice(OPENERS), *middle, rng.choice(CLOSERS)]
-    lines = []
-    for i, (text, emotion) in enumerate(picks):
-        speaker = 'AB'[i % 2]
-        lines.append({'speaker': speaker, 'text': text.format(other=b if speaker == 'A' else a), 'emotion': emotion})
-    return {
-        'lines': lines,
-        'memory_a': {'text': rng.choice(MEMORIES).format(other=b)},
-        'memory_b': {'text': rng.choice(MEMORIES).format(other=a)},
-        'score_delta': rng.randint(-2, 2),
-    }
 
 
 def _partner(instructions: str | None) -> str:
@@ -134,10 +110,8 @@ def build_fake_model(rng: random.Random | None = None) -> FunctionModel:
             args = fake_turn(_partner(info.instructions), prompt, rng)
         elif 'characters' in fields:  # seed_characters --llm
             args = fake_cast(rng)
-        elif 'feeling_delta' in fields:  # a character agent's reflection
+        else:  # a character agent's reflection
             args = fake_reflection(_partner(info.instructions), rng)
-        else:  # the director's whole scene
-            args = fake_conversation(prompt, rng)
         return ModelResponse(parts=[ToolCallPart(tool.name, args)])
 
     return FunctionModel(respond, model_name='fake')

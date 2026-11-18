@@ -2,33 +2,19 @@ from io import StringIO
 
 import pytest
 from django.core.management import CommandError, call_command
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import AgentInfo, FunctionModel
-
 from farm.models import Character, Conversation, Feeling, Memory
+from farm.tests.scripted import Scripted, reflection, turn
 
 pytestmark = pytest.mark.django_db
 
 
-def fake_model() -> FunctionModel:
-    def respond(messages, info: AgentInfo) -> ModelResponse:
-        args = {
-            'lines': [
-                {'speaker': 'A', 'text': 'Bonjour, ennemi.', 'emotion': 'smug'},
-                {'speaker': 'B', 'text': 'Bonjour, pire ennemi.', 'emotion': 'annoyed'},
-            ],
-            'memory_a': {'text': 'Il m\'a appelé ennemi.'},
-            'memory_b': {'text': 'Il a commencé.'},
-            'score_delta': -1,
-        }
-        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, args)])
-
-    return FunctionModel(respond)
+def fake_model() -> Scripted:
+    turns = [turn('Bonjour, voisin.'), turn('Bonjour, cher voisin.'), turn('Bon, je file.', leave=True), turn('Au revoir.')]
+    return Scripted(turns, [reflection(-1), reflection(-1)])
 
 
 @pytest.fixture
-def no_llm(monkeypatch, settings):
-    settings.CONVERSATION_ENGINE = 'director'
+def no_llm(monkeypatch):
     monkeypatch.setattr('farm.conversations.build_model', fake_model)
 
 
@@ -49,8 +35,8 @@ def test_chat_prints_dialogue_and_persists(no_llm):
     call_command('chat', a.name, b.name, stdout=out)
 
     output = out.getvalue()
-    assert f'{a.name}: Bonjour, ennemi.' in output
-    assert f'{b.name}: Bonjour, pire ennemi.' in output
+    assert ': Bonjour, voisin.' in output  # the first speaker is drawn at random
+    assert ': Au revoir.' in output
     assert f'{a.name} -> {b.name}: 0 -> -1' in output
     assert f'{b.name} -> {a.name}: 0 -> -1' in output
     assert Conversation.objects.count() == 1

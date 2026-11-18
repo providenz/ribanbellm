@@ -1,15 +1,13 @@
-"""Shared conversation layer: picks the engine, defines the streamed events, saves the result.
+"""Shared conversation layer: starts the character agents, defines the streamed events, saves the result.
 
-An engine is a generator of event dicts (see `thinking_event`, `line_event`, `end_event`,
-`error_event`); it records the conversation itself before yielding `end` or `error`.
+The agents engine (agents.run) is a generator of event dicts (see `thinking_event`, `line_event`,
+`end_event`, `error_event`); it records the conversation itself before yielding `end` or `error`.
 """
 
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from pydantic_ai.models import Model
 
@@ -108,15 +106,9 @@ def error_event(message: str, conversation: Conversation) -> dict:
 
 
 def stream(a: Character, b: Character, *, model: Model | None = None) -> Iterator[dict]:
-    """Validate, then return the configured engine's event generator."""
+    """Validate, then return the character agents' event generator."""
     if a.pk == b.pk:
         raise ValueError('A character cannot talk to itself.')
-    from . import agents, director  # engines import this module
+    from . import agents  # agents imports this module
 
-    engines = {'agents': agents.run, 'director': director.run}
-    engine = engines.get(settings.CONVERSATION_ENGINE)
-    if engine is None:
-        raise ImproperlyConfigured(
-            f'Unknown CONVERSATION_ENGINE {settings.CONVERSATION_ENGINE!r} (expected {" or ".join(engines)}).'
-        )
-    return engine(a, b, model=model or build_model())
+    return agents.run(a, b, model=model or build_model())

@@ -90,7 +90,7 @@ def fake_cast(rng: random.Random, size: int = 10) -> dict:
                 'name': name,
                 'personality': f'{name.split()[-1]} {rng.choice(CAST_TRAITS)}.',
                 'speech_quirk': rng.choice(CAST_QUIRKS),
-                'color': '#%06x' % rng.randrange(0x1000000),
+                'color': f'#{rng.randrange(0x1000000):06x}',
                 'accessory': rng.choice(['none', 'hat', 'glasses', 'bow', 'antenna', 'mustache', 'crown']),
             }
             for name in names

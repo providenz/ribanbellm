@@ -2,6 +2,7 @@ from io import StringIO
 
 import pytest
 from django.core.management import CommandError, call_command
+
 from farm.models import Character, Conversation, Feeling, Memory
 from farm.tests.scripted import Scripted, reflection, turn
 
@@ -75,8 +76,8 @@ def test_usage_totals_per_model(cast):
     call_command('usage', stdout=out)
 
     lines = out.getvalue().splitlines()
-    assert any('claude-opus-5-5' in l and '2' in l and '300' in l and '120' in l and '$0.0300' in l for l in lines)
-    assert any('mistral-medium-2508' in l and 'inconnu' in l for l in lines)
+    assert any(all(s in row for s in ('claude-opus-5-5', '2', '300', '120', '$0.0300')) for row in lines)
+    assert any('mistral-medium-2508' in row and 'inconnu' in row for row in lines)
 
 
 @pytest.fixture

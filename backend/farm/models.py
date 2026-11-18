@@ -45,7 +45,7 @@ class Feeling(models.Model):
         return f'{self.owner} -> {self.toward}: {self.score}'
 
     @classmethod
-    def of(cls, owner: Character, toward: Character) -> 'Feeling':
+    def of(cls, owner: Character, toward: Character) -> Feeling:
         feeling, _ = cls.objects.get_or_create(owner=owner, toward=toward)
         return feeling
 
@@ -75,7 +75,7 @@ class Memory(models.Model):
         return cls.objects.filter(owner=owner).select_related('about')[: cls.MAX_PER_OWNER]
 
     @classmethod
-    def remember(cls, owner: Character, text: str, about: Character | None = None) -> 'Memory':
+    def remember(cls, owner: Character, text: str, about: Character | None = None) -> Memory:
         memory = cls.objects.create(owner=owner, about=about, text=text)
         keep = cls.objects.filter(owner=owner).values_list('pk', flat=True)[: cls.MAX_PER_OWNER]
         cls.objects.filter(owner=owner).exclude(pk__in=list(keep)).delete()

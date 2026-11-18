@@ -75,9 +75,13 @@ uv run python manage.py reset_farm                 # erase conversations, memori
 uv run python manage.py usage                      # tokens and cost per engine and model
 ```
 
-## Tests
+## Tests and lint
 
 ```sh
-cd frontend && npm test     # game (vitest)
-cd backend && uv run pytest  # backend, never calls a real LLM
+cd frontend && npm test             # game (vitest)
+cd frontend && npm run lint         # ESLint
+cd backend && uv run pytest         # backend, never calls a real LLM
+cd backend && uv run ruff check .   # ruff (add --fix for the fixable ones)
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs all of this on every push to `main` and every pull request, plus the Django checks (`manage.py check`, no missing migration), the game build and the Docker image builds.

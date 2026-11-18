@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from farm.agents import MIN_LINES
 from farm.models import Character, Conversation
 from farm.tests.scripted import Scripted, turn

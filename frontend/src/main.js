@@ -321,10 +321,11 @@ class IsoScene extends Phaser.Scene {
     }
   }
 
-  countUsage(usage) {
-    this.pageUsage = addUsage(this.pageUsage, usage);
+  // `previous`: this conversation's last report, so only what grew since is added
+  countUsage(usage, previous, final) {
+    this.pageUsage = addUsage(this.pageUsage, usage, previous);
     this.showUsage('usage-page', this.pageUsage);
-    this.refreshTotalUsage();
+    if (final) this.refreshTotalUsage(); // the backend saves the conversation only at its end
   }
 
   async refreshTotalUsage() {
@@ -346,8 +347,11 @@ class IsoScene extends Phaser.Scene {
   // Fetch the conversation and queue its events as they arrive.
   async listen(a, b, convo) {
     const push = (event) => {
-      // Counted on arrival: the backend has saved it, even if this pair is removed before playback
-      if (event.usage) this.countUsage(event.usage);
+      // Counted on arrival, line by line (tokens so far), even if this pair is removed before playback
+      if (event.usage) {
+        this.countUsage(event.usage, convo.usage ?? null, event.type !== 'line');
+        convo.usage = event.usage;
+      }
       convo.queue.push(event);
       convo.wake?.();
     };

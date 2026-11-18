@@ -35,6 +35,17 @@ def test_stream_runs_the_character_agents(pair):
     assert end['usage']['input_tokens'] > 0
 
 
+def test_each_line_carries_the_tokens_used_so_far(pair):
+    model = Scripted([turn('Salut.', leave=True)] * MIN_LINES, [reflection(1), reflection(1)])
+
+    events = list(stream(*pair, model=model))
+
+    running = [e['usage']['input_tokens'] for e in events if e['type'] == 'line']
+    assert len(running) == MIN_LINES
+    assert running == sorted(running) and running[0] > 0 and len(set(running)) == MIN_LINES
+    assert events[-1]['usage']['input_tokens'] > running[-1]  # the reflections come on top
+
+
 def test_model_failure_ends_with_an_error_event(pair):
     events = list(stream(*pair, model=Scripted([RuntimeError('LLM down')])))
 

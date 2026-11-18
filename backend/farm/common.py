@@ -80,3 +80,12 @@ class Usage:
         self.cost_usd = None if cost is None or self.cost_usd is None else self.cost_usd + cost
         if responses:
             self.model_name = responses[-1].model_name or self.model_name
+
+    def as_event(self) -> dict:
+        """The running totals, in the shape the streamed events use."""
+        cost = self.cost_usd
+        return {
+            'input_tokens': self.input_tokens,
+            'output_tokens': self.output_tokens,
+            'cost_usd': None if cost is None else float(cost),
+        }

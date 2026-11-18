@@ -2,7 +2,7 @@
 
 A small LLM "ant farm" in French. Quirky characters wander an isometric village, meet two by two and talk: each character is its own LLM agent, with its own personality, memories and feelings toward the others. Their conversations show up as speech bubbles on the map and in a live chat on the right, with the token consumption at the bottom.
 
-- `src/`: the game (Phaser 4 + Vite). It handles walking and meetings, and plays the conversations it receives.
+- `frontend/`: the game (Phaser 4 + Vite). It handles walking and meetings, and plays the conversations it receives.
 - `backend/`: the characters and their conversations (Django, Django Ninja, pydantic-ai, SQLite). See [backend/README.md](backend/README.md) for the details.
 
 ## Configure the LLM
@@ -36,9 +36,10 @@ uv run python manage.py seed_characters
 uv run python manage.py runserver        # http://localhost:8000
 ```
 
-In another terminal, the game:
+In another terminal, from the repository root, the game:
 
 ```sh
+cd frontend
 npm install
 npm run dev                              # http://localhost:5173, forwards /api to the backend
 ```
@@ -57,6 +58,6 @@ uv run python manage.py usage                      # tokens and cost per engine 
 ## Tests
 
 ```sh
-npm test                    # game (vitest)
-cd backend && uv run pytest # backend, never calls a real LLM
+cd frontend && npm test     # game (vitest)
+cd backend && uv run pytest  # backend, never calls a real LLM
 ```

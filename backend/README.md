@@ -9,7 +9,7 @@ cd backend
 cp .env.example .env        # then set LLM_API_KEY
 uv sync
 uv run python manage.py migrate
-uv run python manage.py seed_characters
+uv run python manage.py seed_characters   # the LLM invents 5 characters
 ```
 
 ### Or run everything with Docker
@@ -22,7 +22,7 @@ make superuser
 make chat
 ```
 
-Migrations and `seed_characters` run on each start. The database lives in the `db` volume (`make clean` erases it). Code changes need `make restart`. `make help` lists every command; the root README has the table.
+Migrations run on each start, and `seed_characters --if-empty` invents 5 characters when there are none yet. The database lives in the `db` volume (`make clean` erases it). Code changes need `make restart`. `make help` lists every command; the root README has the table.
 
 To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-in model returns random canned French dialogue after a short delay (0.8 to 2.5 s), with no API key needed. Memories and feelings are still updated as with a real model.
 
@@ -37,11 +37,12 @@ Older conversations may be marked `director` in the admin and in `usage`: they c
 ## Invent new characters
 
 ```sh
-uv run python manage.py seed_characters --llm             # 5 new characters invented by the LLM
-uv run python manage.py seed_characters --llm --count 3   # 1 to 10
+uv run python manage.py seed_characters                # 5 new characters invented by the LLM
+uv run python manage.py seed_characters --count 3      # 1 to 10
+uv run python manage.py seed_characters --if-empty     # only if the farm has no characters yet
 ```
 
-They are added next to the existing ones (names already taken are skipped). Without `--llm`, `seed_characters` creates or updates the fixed starter cast. With `LLM_PROVIDER=fake`, the names and personalities are drawn from canned pieces.
+They are added next to the existing ones (names already taken are skipped). There is no fixed cast: every character is invented. With `LLM_PROVIDER=fake`, the names and personalities are drawn from canned pieces.
 
 ## Make two characters talk
 

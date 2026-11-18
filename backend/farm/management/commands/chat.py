@@ -41,7 +41,7 @@ class Command(BaseCommand):
         if not names:
             pool = list(active)
             if len(pool) < 2:
-                raise CommandError('Need at least 2 active characters (run seed_characters).')
+                raise CommandError('Need at least 2 active characters (run seed_characters to invent some).')
             return tuple(random.sample(pool, 2))
         if len(names) != 2:
             raise CommandError('Give exactly two names, or none for a random pair.')

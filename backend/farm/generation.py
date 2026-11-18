@@ -1,4 +1,4 @@
-"""Invent new characters with the LLM (seed_characters --llm)."""
+"""Invent new characters with the LLM (seed_characters)."""
 
 import random
 import re

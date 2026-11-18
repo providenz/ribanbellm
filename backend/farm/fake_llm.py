@@ -1,6 +1,6 @@
 """A free stand-in for the LLM (LLM_PROVIDER=fake): random canned French dialogue, no API call.
 
-It answers the character agents (turns and reflections) and seed_characters --llm through the
+It answers the character agents (turns and reflections) and seed_characters through the
 real pipeline (structured output, memories, feelings), so everything downstream behaves as
 with a real model.
 """
@@ -108,7 +108,7 @@ def build_fake_model(rng: random.Random | None = None) -> FunctionModel:
         prompt = '\n'.join(str(part.content) for part in messages[-1].parts if hasattr(part, 'content'))
         if 'leave' in fields:  # a character agent's turn
             args = fake_turn(_partner(info.instructions), prompt, rng)
-        elif 'characters' in fields:  # seed_characters --llm
+        elif 'characters' in fields:  # seed_characters
             args = fake_cast(rng)
         else:  # a character agent's reflection
             args = fake_reflection(_partner(info.instructions), rng)

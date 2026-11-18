@@ -24,7 +24,7 @@ make down    # stop (the database is kept)
 - Game: http://localhost:5173
 - Admin: http://localhost:8000/admin (create a login with `make superuser`)
 
-Migrations and the starter characters are set up on each start. The database lives in a Docker volume.
+Migrations run on each start. On the first start, when the database has no characters yet, the LLM invents 5 of them (with `LLM_PROVIDER=fake`, they are drawn from canned pieces, for free). The database lives in a Docker volume.
 
 Other commands, all run against the running app (`make help` lists them):
 
@@ -32,9 +32,8 @@ Other commands, all run against the running app (`make help` lists them):
 |---|---|
 | `make restart` | Rebuild and recreate the containers, e.g. after editing `backend/.env` or the code |
 | `make ps` | Show the running containers |
-| `make chat` | Make two random characters talk in the terminal; `make chat A="Grillon" B="Zigzag"` picks them |
+| `make chat` | Make two random characters talk in the terminal; `make chat A="<name>" B="<name>"` picks them |
 | `make invent COUNT=3` | Invent new characters with the LLM (default 5) |
-| `make seed` | Create or update the starter characters |
 | `make usage` | Tokens and cost per engine and model |
 | `make reset` | Erase conversations, memories and feelings, keep the characters (asks first) |
 | `make migrate` | Apply database migrations |
@@ -53,7 +52,7 @@ Needs [uv](https://docs.astral.sh/uv/) (Python 3.14) and Node.js. In one termina
 cd backend
 uv sync
 uv run python manage.py migrate
-uv run python manage.py seed_characters
+uv run python manage.py seed_characters           # the LLM invents 5 characters
 uv run python manage.py runserver        # http://localhost:8000
 ```
 
@@ -71,7 +70,7 @@ From `backend/`:
 
 ```sh
 uv run python manage.py chat                       # make two characters talk in the terminal
-uv run python manage.py seed_characters --llm      # invent 5 new characters with the LLM
+uv run python manage.py seed_characters            # invent 5 more characters with the LLM
 uv run python manage.py reset_farm                 # erase conversations, memories and feelings
 uv run python manage.py usage                      # tokens and cost per engine and model
 ```

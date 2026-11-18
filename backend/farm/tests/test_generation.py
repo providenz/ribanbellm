@@ -61,17 +61,26 @@ def test_fake_model_casts_characters(monkeypatch):
     assert len({i['name'] for i in ideas}) == 3
 
 
-def test_seed_with_llm_adds_characters(monkeypatch):
+def test_seed_invents_characters_with_the_llm(monkeypatch):
     Character.objects.create(name='Grillon', personality='p', speech_quirk='q')
     monkeypatch.setattr('farm.llm.build_model', lambda: casting_model([idea('Théa'), idea('Bob')]))
     out = StringIO()
 
-    call_command('seed_characters', '--llm', '--count', '2', stdout=out)
+    call_command('seed_characters', '--count', '2', stdout=out)
 
     assert set(Character.objects.values_list('name', flat=True)) == {'Grillon', 'Théa', 'Bob'}
     assert 'created: Théa' in out.getvalue()
 
 
-def test_seed_count_needs_llm():
+def test_seed_if_empty_invents_only_into_an_empty_farm(monkeypatch):
+    monkeypatch.setattr('farm.llm.build_model', lambda: casting_model([idea('Théa'), idea('Bob')]))
+
+    call_command('seed_characters', '--count', '2', '--if-empty', stdout=StringIO())
+    call_command('seed_characters', '--count', '2', '--if-empty', stdout=StringIO())
+
+    assert set(Character.objects.values_list('name', flat=True)) == {'Théa', 'Bob'}
+
+
+def test_seed_count_must_be_between_1_and_10():
     with pytest.raises(CommandError):
-        call_command('seed_characters', '--count', '2', stdout=StringIO())
+        call_command('seed_characters', '--count', '11', stdout=StringIO())

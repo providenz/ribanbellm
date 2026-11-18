@@ -5,7 +5,7 @@ MANAGE = $(COMPOSE) exec backend uv run --no-dev python manage.py
 COUNT ?= 5
 
 .DEFAULT_GOAL := help
-.PHONY: help up down restart logs ps shell manage migrate seed invent chat reset usage superuser clean
+.PHONY: help up down restart logs ps shell manage migrate invent chat reset usage superuser clean
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-10s %s\n", $$1, $$2}'
@@ -35,13 +35,10 @@ manage: ## Run any Django command: make manage CMD="showmigrations"
 migrate: ## Apply database migrations (also done on each start)
 	$(MANAGE) migrate
 
-seed: ## Create or update the starter characters (also done on each start)
-	$(MANAGE) seed_characters
+invent: ## Invent new characters with the LLM: make invent COUNT=3 (default 5; 5 are invented on the first start)
+	$(MANAGE) seed_characters --count $(COUNT)
 
-invent: ## Invent new characters with the LLM: make invent COUNT=3 (default 5)
-	$(MANAGE) seed_characters --llm --count $(COUNT)
-
-chat: ## Make two characters talk in the terminal: make chat A="Grillon" B="Zigzag" (random pair without A and B)
+chat: ## Make two characters talk in the terminal: make chat A="<name>" B="<name>" (random pair without A and B)
 	$(MANAGE) chat $(if $(A),"$(A)" "$(B)")
 
 reset: ## Erase conversations, memories and feelings, keep the characters (asks first)

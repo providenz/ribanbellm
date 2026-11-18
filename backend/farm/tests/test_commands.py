@@ -18,17 +18,15 @@ def no_llm(monkeypatch):
     monkeypatch.setattr('farm.conversations.build_model', fake_model)
 
 
-def test_seed_characters_is_idempotent():
-    call_command('seed_characters', stdout=StringIO())
-    count = Character.objects.count()
-    call_command('seed_characters', stdout=StringIO())
+@pytest.fixture
+def cast():
+    return [
+        Character.objects.create(name=name, personality='Rêveur.', speech_quirk='Hmm.')
+        for name in ('Théa', 'Bob', 'Ondine')
+    ]
 
-    assert count >= 10
-    assert Character.objects.count() == count
 
-
-def test_chat_prints_dialogue_and_persists(no_llm):
-    call_command('seed_characters', stdout=StringIO())
+def test_chat_prints_dialogue_and_persists(no_llm, cast):
     a, b = Character.objects.all()[:2]
     out = StringIO()
 
@@ -42,8 +40,7 @@ def test_chat_prints_dialogue_and_persists(no_llm):
     assert Conversation.objects.count() == 1
 
 
-def test_chat_picks_random_pair_when_no_names(no_llm):
-    call_command('seed_characters', stdout=StringIO())
+def test_chat_picks_random_pair_when_no_names(no_llm, cast):
 
     call_command('chat', stdout=StringIO())
 
@@ -56,8 +53,7 @@ def test_chat_rejects_unknown_character(no_llm):
         call_command('chat', 'Nobody', 'Ghost', stdout=StringIO())
 
 
-def test_chat_prints_token_usage(no_llm):
-    call_command('seed_characters', stdout=StringIO())
+def test_chat_prints_token_usage(no_llm, cast):
     out = StringIO()
 
     call_command('chat', stdout=out)
@@ -66,10 +62,9 @@ def test_chat_prints_token_usage(no_llm):
     assert 'coût inconnu' in out.getvalue()
 
 
-def test_usage_totals_per_model():
+def test_usage_totals_per_model(cast):
     from decimal import Decimal
 
-    call_command('seed_characters', stdout=StringIO())
     a, b = Character.objects.all()[:2]
     common = dict(a=a, b=b, lines=[])
     Conversation.objects.create(**common, model_name='claude-opus-5-5', input_tokens=100, output_tokens=50, cost_usd=Decimal('0.01'))
@@ -85,8 +80,7 @@ def test_usage_totals_per_model():
 
 
 @pytest.fixture
-def lived_in_farm():
-    call_command('seed_characters', stdout=StringIO())
+def lived_in_farm(cast):
     a, b = Character.objects.all()[:2]
     Feeling.of(a, b).apply_delta(3)
     Memory.objects.create(owner=a, about=b, text='Il me doit une cuillère.')

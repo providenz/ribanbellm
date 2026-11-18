@@ -2,6 +2,8 @@
 
 A small LLM "ant farm" in French. Quirky characters wander an isometric village, meet two by two and talk: each character is its own LLM agent, with its own personality, memories and feelings toward the others. Their conversations show up as speech bubbles on the map and in a live chat on the right, with the token consumption at the bottom.
 
+![Two characters talking in the village, with the live chat and the token count on the right](docs/screenshot.png)
+
 - `frontend/`: the game (Phaser 4 + Vite). It handles walking and meetings, and plays the conversations it receives.
 - `backend/`: the characters and their conversations (Django, Django Ninja, pydantic-ai, SQLite). See [backend/README.md](backend/README.md) for the details.
 

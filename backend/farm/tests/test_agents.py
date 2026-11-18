@@ -4,7 +4,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 import re
 
-from farm.agents import MAX_LINES, MIN_LINES, TOPICS, pick_topic, run
+from farm.agents import MAX_LINES, MIN_LINES, TOPICS, pick_topic, run, strip_quirk
 from farm.models import Character, Conversation, Feeling, Memory
 
 pytestmark = pytest.mark.django_db
@@ -132,7 +132,8 @@ def test_failure_mid_conversation_keeps_lines_without_consequences(pair):
 
     events = list(run(a, b, model=model, rng=First(a)))
 
-    assert events[-1] == {'type': 'error', 'message': 'LLM down'}
+    assert events[-1]['type'] == 'error' and events[-1]['message'] == 'LLM down'
+    assert events[-1]['usage']['input_tokens'] > 0  # the two lines already said were paid for
     conversation = Conversation.objects.get()
     assert conversation.interrupted
     assert conversation.error == 'LLM down'
@@ -206,24 +207,15 @@ def test_both_agents_get_the_same_topic(pair):
     assert topics[0] == topics[1] == TOPICS[0]
 
 
-def test_quirk_is_only_offered_on_the_greeting_unless_the_dice_say_so(pair):
+def test_quirk_is_only_offered_on_the_first_line(pair):
     a, b = pair  # Gérard's quirk is "Bof."
     model = Scripted([turn()] * 20)
 
     list(run(a, b, model=model, rng=First(a, roll=0.9)))
 
-    assert 'Bof.' in model.calls[0]  # Gérard greets
-    assert all('Bof.' not in call for call in model.calls[2:MAX_LINES:2])  # Gérard's later turns
-    assert 'sans ton tic de langage' in model.calls[2]
-
-
-def test_quirk_comes_back_now_and_then(pair):
-    a, b = pair
-    model = Scripted([turn()] * 20)
-
-    list(run(a, b, model=model, rng=First(a, roll=0.1)))
-
-    assert 'Bof.' in model.calls[2]
+    assert 'à glisser dans cette réplique: Bof.' in model.calls[0]  # Gérard greets
+    later = model.calls[2:MAX_LINES:2]  # Gérard's later turns
+    assert all('à glisser' not in call and 'SANS ton tic de langage (Bof.)' in call for call in later)
 
 
 def test_each_turn_keeps_the_topic_in_view(pair):
@@ -240,3 +232,57 @@ def test_pick_topic_is_sometimes_gossip_about_another_villager():
     assert pick_topic(First(None, roll=0.9), ['Zigzag']) == TOPICS[0]
     assert 'Zigzag' in pick_topic(First(None, roll=0.1), ['Zigzag'])
     assert pick_topic(First(None, roll=0.1), []) == TOPICS[0]  # nobody to gossip about
+
+
+ZEN = 'Inspire longuement avant chaque phrase et termine par « ...et on relâche les épaules ».'
+PEDANT = 'Remonte ses lunettes et dit « Techniquement parlant... » avant de se tromper.'
+
+
+def test_strip_quirk_removes_catchphrases_and_stage_directions():
+    assert strip_quirk('*Inspire* Les étoiles ont donc soif... et on relâche les épaules', ZEN) == 'Les étoiles ont donc soif.'
+    assert strip_quirk('Techniquement parlant... il arrose les étoiles ! *remonte ses lunettes*', PEDANT) == (
+        'il arrose les étoiles !'
+    )
+    assert strip_quirk('Bonjour à toi.', ZEN) == 'Bonjour à toi.'
+
+
+def test_strip_quirk_keeps_a_line_that_would_be_empty():
+    assert strip_quirk('*Inspire*', ZEN) == '*Inspire*'
+
+
+def test_quirk_is_stripped_from_lines_where_it_is_not_allowed(pair):
+    a, b = pair
+    a.speech_quirk = ZEN
+    a.save()
+    said = '*Inspire* Il fait beau... et on relâche les épaules'
+    model = Scripted([turn(said)] * 20)
+
+    events = list(run(a, b, model=model, rng=First(a, roll=0.9)))
+
+    texts = [e['text'] for e in lines_of(events) if e['speaker'] == 'Gérard']
+    assert texts[0] == said  # the greeting may use it
+    assert all(text == 'Il fait beau.' for text in texts[1:])
+    assert 'et on relâche les épaules' in model.calls[2]  # named as the thing to avoid this time
+
+
+def test_quirk_is_used_once_even_with_lucky_dice(pair):
+    a, b = pair
+    model = Scripted([turn()] * 20)
+
+    list(run(a, b, model=model, rng=First(a, roll=0.0)))
+
+    gerard_calls = model.calls[0:MAX_LINES:2]
+    assert sum('à glisser dans cette réplique' in call for call in gerard_calls) == 1
+
+
+def test_conversations_are_dreamy_and_philosophical_without_jargon(pair):
+    model = Scripted([turn(leave=True)] * MIN_LINES)
+
+    list(run(*pair, model=model, rng=First(pair[0])))
+
+    assert 'onirique' in model.calls[0]
+    assert 'jamais académique' in model.calls[0]
+
+
+def test_gossip_is_about_a_dream():
+    assert 'rêve' in pick_topic(First(None, roll=0.1), ['Zigzag'])

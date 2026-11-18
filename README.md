@@ -16,13 +16,34 @@ Then either set `LLM_API_KEY` (and the provider and model) in `backend/.env`, or
 ## Run with Docker
 
 ```sh
-docker compose up --build
+make up      # build and start in the background
+make logs    # follow what happens (Ctrl+C to stop following)
+make down    # stop (the database is kept)
 ```
 
 - Game: http://localhost:5173
-- Admin: http://localhost:8000/admin (create a login with `docker compose exec backend uv run --no-dev python manage.py createsuperuser`)
+- Admin: http://localhost:8000/admin (create a login with `make superuser`)
 
-Migrations and the starter characters are set up on each start. The database lives in a Docker volume; `docker compose down -v` erases it.
+Migrations and the starter characters are set up on each start. The database lives in a Docker volume.
+
+Other commands, all run against the running app (`make help` lists them):
+
+| Command | What it does |
+|---|---|
+| `make restart` | Rebuild and recreate the containers, e.g. after editing `backend/.env` or the code |
+| `make ps` | Show the running containers |
+| `make chat` | Make two random characters talk in the terminal; `make chat A="Grillon" B="Zigzag"` picks them |
+| `make invent COUNT=3` | Invent new characters with the LLM (default 5) |
+| `make seed` | Create or update the starter characters |
+| `make usage` | Tokens and cost per engine and model |
+| `make reset` | Erase conversations, memories and feelings, keep the characters (asks first) |
+| `make migrate` | Apply database migrations |
+| `make superuser` | Create a login for the admin |
+| `make manage CMD="..."` | Run any other Django command |
+| `make shell` | Open a shell in the backend container |
+| `make clean` | Stop and erase the Docker database, characters included (asks first) |
+
+Without `make`, the same works with `docker compose`, e.g. `docker compose up --build` and `docker compose exec backend uv run --no-dev python manage.py chat`.
 
 ## Run without Docker
 

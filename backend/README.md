@@ -17,12 +17,12 @@ uv run python manage.py seed_characters
 From the repository root (`backend/.env` is read if present, never copied into the image):
 
 ```sh
-docker compose up --build   # game on http://localhost:5173, admin on http://localhost:8000/admin
-docker compose exec backend uv run --no-dev python manage.py createsuperuser
-docker compose exec backend uv run --no-dev python manage.py chat
+make up          # game on http://localhost:5173, admin on http://localhost:8000/admin
+make superuser
+make chat
 ```
 
-Migrations and `seed_characters` run on each start. The database lives in the `db` volume (`docker compose down -v` resets it). Code changes need `docker compose up --build`.
+Migrations and `seed_characters` run on each start. The database lives in the `db` volume (`make clean` erases it). Code changes need `make restart`. `make help` lists every command; the root README has the table.
 
 To develop without spending tokens, set `LLM_PROVIDER=fake` in `.env`: a stand-in model returns random canned French dialogue after a short delay (0.8 to 2.5 s), with no API key needed. Memories and feelings are still updated as with a real model.
 
